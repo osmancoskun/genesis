@@ -1,6 +1,6 @@
-# Path-director DNS steering demo: two upstream DNS + agent + dig checks.
+# Genesis DNS steering demo: two upstream DNS + agent + dig checks.
 # Run: docker compose -f docker/demo/compose.yaml up --build --abort-on-container-exit
-name: path-director-demo
+name: genesis-demo
 
 services:
   dns-alpha:

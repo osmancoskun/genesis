@@ -1,4 +1,4 @@
-// Package doctor inspects the host DNS/routing stack for conflicts with the path director.
+// Package doctor inspects the host DNS/routing stack for conflicts with genesis.
 // Host probes use native files, net APIs, and D-Bus — not subprocesses.
 package doctor
 
@@ -258,7 +258,7 @@ func (r *Report) checkInterfaces() {
 // Format returns a human-readable report.
 func (r Report) Format() string {
 	var b strings.Builder
-	b.WriteString("path-director doctor\n")
+	b.WriteString("genesis doctor\n")
 	b.WriteString("====================\n")
 	for _, f := range r.Findings {
 		fmt.Fprintf(&b, "[%s] %s: %s\n", strings.ToUpper(f.Level), f.Code, f.Message)

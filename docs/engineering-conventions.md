@@ -5,7 +5,7 @@ Project rules from Osman. Agents and humans follow these when changing the repo.
 ## Branches
 
 - Use conventional prefixes: `feature/`, `fix/`, `chore/`, `refactor/`, `test/`, `docs/`.
-- Examples: `feature/path-director-mvp`, `fix/dns-bind-iface`, `chore/verify-in-process`.
+- Examples: `feature/genesis-mvp`, `fix/dns-bind-iface`, `chore/verify-in-process`.
 
 ## Commits
 

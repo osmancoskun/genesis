@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prove path-director steers hello.alpha / hello.beta to the right upstream DNS.
+# Prove genesis steers hello.alpha / hello.beta to the right upstream DNS.
 set -eu
 
 apk add --no-cache bind-tools >/dev/null
@@ -64,7 +64,7 @@ else
 	fail=1
 fi
 
-echo "== via path-director agent (steering) =="
+echo "== via genesis agent (steering) =="
 check "agent→alpha A" "$(dig @"$agent" -p "$port" +short hello.alpha.test A | head -1)" "10.10.1.1"
 check "agent→alpha TXT" "$(dig @"$agent" -p "$port" +short hello.alpha.test TXT | tr -d '"')" "hello-from-alpha"
 check "agent→beta A" "$(dig @"$agent" -p "$port" +short hello.beta.test A | head -1)" "10.10.2.2"

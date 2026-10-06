@@ -24,7 +24,7 @@ Use this mode on a daily driver laptop. It never fights resolved for `:53`.
 Keep resolved as the system stub. Point **routing domains** at the agent as an upstream (example — adapt; do not apply blindly on a production machine without review):
 
 ```ini
-# e.g. /etc/systemd/resolved.conf.d/path-director.conf  (OPTIONAL — not installed by us)
+# e.g. /etc/systemd/resolved.conf.d/genesis.conf  (OPTIONAL — not installed by us)
 [Resolve]
 DNS=127.0.0.1:5353
 Domains=~corp.example

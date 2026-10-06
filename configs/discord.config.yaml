@@ -1,0 +1,64 @@
+# Example: Discord via Cloudflare WARP, everything else via Ethernet (eno1).
+#
+# To use this example:
+
+#   cp configs/discord.config.yaml configs/local.yaml
+#   go run ./cmd/ctl menu                    # or: go run ./cmd/ctl run
+#
+# Or without copying:
+#   go run ./cmd/ctl -config configs/discord.config.yaml run
+#   go run ./cmd/agent -config configs/discord.config.yaml
+#
+# Then Mode B + disable browser DoH:
+#   ./scripts/host-resolved-modeb.sh install 5553
+# Cleanup: ./scripts/host-cleanup.sh
+#
+# Field reference + setup walkthrough: docs/ctl-manual.md
+
+version: 1
+
+agent:
+  # UDP listen for the DNS stub (avoid 5353 — mDNS/Avahi).
+  listen: 127.0.0.1:5553
+  # Live policy pins for matched A answers (needs CAP_NET_ADMIN / sudo).
+  pins: netlink
+  # Live catch-all for non-pinned IPv4 (needs CAP_NET_ADMIN / sudo).
+  default_path_mode: netlink
+  # Upstream used by setup probes and as default for new rules.
+  dns_upstream: 1.1.1.1
+
+defaults:
+  dns: 1.1.1.1
+  interface: auto
+  pin_connections: true
+  on_iface_down: fail_closed
+
+# Non-pinned IPv4 → eno1 (owned table 18990, prio 5100).
+# Replace eno1 with your LAN NIC. Prefer off while experimenting with WARP alone.
+default_path:
+  interface: eno1
+  on_iface_down: fail_closed
+
+rules:
+  # Discord family → CloudflareWARP. Include CDN / gateway names Mode B sends.
+  # Replace CloudflareWARP with your WARP (or other VPN) iface name.
+  - name: discord
+    match:
+      domains:
+        - discord.com
+        - "*.discord.com"
+        - discord.app
+        - "*.discord.app"
+        - discord.gg
+        - "*.discord.gg"
+        - discordapp.com
+        - "*.discordapp.com"
+        - discordapp.net
+        - "*.discordapp.net"
+        - discord.media
+        - "*.discord.media"
+      ips: []
+    dns: 1.1.1.1
+    interface: CloudflareWARP
+    pin_connections: true
+    on_iface_down: fail_closed
