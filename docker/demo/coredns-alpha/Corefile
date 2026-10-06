@@ -1,0 +1,5 @@
+alpha.test:53 {
+    file /etc/coredns/db.alpha
+    log
+    errors
+}

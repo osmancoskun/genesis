@@ -1,0 +1,5 @@
+beta.test:53 {
+    file /etc/coredns/db.beta
+    log
+    errors
+}

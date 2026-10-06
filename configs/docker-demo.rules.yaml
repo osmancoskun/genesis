@@ -1,0 +1,24 @@
+# Docker compose demo: steer hello.alpha.test / hello.beta.test to separate upstream DNS.
+# interface: auto — no SO_BINDTODEVICE (compose bridge dial is enough for this check).
+version: 1
+defaults:
+  interface: auto
+  pin_connections: false
+  on_iface_down: fail_closed
+
+rules:
+  - name: alpha
+    match:
+      domains:
+        - alpha.test
+        - "*.alpha.test"
+    dns: 172.28.0.11
+    interface: auto
+
+  - name: beta
+    match:
+      domains:
+        - beta.test
+        - "*.beta.test"
+    dns: 172.28.0.12
+    interface: auto

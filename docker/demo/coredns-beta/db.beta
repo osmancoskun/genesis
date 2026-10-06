@@ -1,0 +1,6 @@
+$ORIGIN beta.test.
+@       30 IN SOA ns.beta.test. admin.beta.test. 1 3600 600 86400 30
+        30 IN NS  ns.beta.test.
+ns      30 IN A   172.28.0.12
+hello   30 IN A   10.10.2.2
+hello   30 IN TXT "hello-from-beta"

@@ -1,0 +1,6 @@
+$ORIGIN alpha.test.
+@       30 IN SOA ns.alpha.test. admin.alpha.test. 1 3600 600 86400 30
+        30 IN NS  ns.alpha.test.
+ns      30 IN A   172.28.0.11
+hello   30 IN A   10.10.1.1
+hello   30 IN TXT "hello-from-alpha"

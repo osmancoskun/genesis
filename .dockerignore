@@ -1,0 +1,5 @@
+.git
+**/testdata
+docker/demo
+*.md
+.gitignore
