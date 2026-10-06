@@ -6,16 +6,21 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"dnsredirector/internal/appconfig"
 	"dnsredirector/internal/dnsstub"
+	"dnsredirector/internal/modeb"
 	"dnsredirector/internal/pathpin"
 	"dnsredirector/internal/rules"
+	"dnsredirector/internal/webui"
 )
 
 func main() {
@@ -26,6 +31,7 @@ func main() {
 	defaultPathMode := flag.String("default-path", "", "default-path override: auto|dry-run|netlink|off")
 	reaperEvery := flag.Duration("pin-reaper", time.Second, "how often to expire TTL'd pins")
 	pidFile := flag.String("pidfile", "", "write PID here (default: runtime dir genesis.pid)")
+	uiListen := flag.String("ui", "", "Web UI listen (TCP). Default from config or "+appconfig.DefaultUI+"; off disables")
 	flag.Parse()
 
 	cfgFile, rulesCfg, loadedPath, err := loadAgentConfig(*configPath, *rulesPath)
@@ -113,6 +119,66 @@ func main() {
 	log.Printf("pins=%s default-path=%s reaper=%s; iface-down=%s; ipv6=v4-first; doh=warn-only",
 		label, dpLabel, *reaperEvery, rulesCfg.Defaults.OnIfaceDown)
 	log.Printf("SIGHUP reloads config from %s (ctl apply)", loadedPath)
+	if err := modeb.SyncFromConfig(cfgFile); err != nil {
+		log.Printf("mode B Domains sync: %v", err)
+	} else if doms := modeb.RoutingDomains(cfgFile.Rules); len(doms) > 0 {
+		log.Printf("mode B Domains synced (%d): %s", len(doms), strings.Join(doms, " "))
+	}
+
+	state := &agentState{file: cfgFile, path: loadedPath, pins: pins, dpMode: dpMode}
+
+	uiAddr := cfgFile.EffectiveUIListen()
+	if *uiListen != "" {
+		if *uiListen == "off" || *uiListen == "disabled" {
+			uiAddr = ""
+		} else {
+			uiAddr = *uiListen
+		}
+	}
+	var uiSrv *webui.Server
+	if uiAddr != "" {
+		applyLive := func() error {
+			return state.applyLive(srv, &dpApplier, &dpIface)
+		}
+		uiSrv = &webui.Server{
+			Addr: uiAddr,
+			Hooks: webui.Hooks{
+				DNSListen: listenAddr,
+				ActivePath: func() string {
+					return state.pathLocked()
+				},
+				Snapshot: state.get,
+				SaveDefaultPath: func(iface, mode string) error {
+					return state.saveDefaultPath(iface, mode, srv, &dpApplier, &dpIface)
+				},
+				Apply: applyLive,
+				Select: func(path string) error {
+					return state.selectConfig(path, srv, &dpApplier, &dpIface)
+				},
+				SaveYAML: func(raw string) error {
+					return state.saveYAML(raw, srv, &dpApplier, &dpIface)
+				},
+				New: func(name string) (string, error) {
+					return state.newConfig(name)
+				},
+				Delete: func(path string) error {
+					return state.deleteConfig(path)
+				},
+				AddRule: func(in webui.RuleInput) error {
+					return state.addRule(in, srv, pinMgr, &dpApplier, &dpIface)
+				},
+				SaveSettings: func(listen, uiListen, pinsMode, dpModeVal, dnsUpstream string) error {
+					return state.saveSettings(listen, uiListen, pinsMode, dpModeVal, dnsUpstream, srv, &dpApplier, &dpIface)
+				},
+			},
+		}
+		go func() {
+			log.Printf("web UI http://%s (localhost only)", uiAddr)
+			if err := uiSrv.ListenAndServe(); err != nil {
+				log.Printf("web UI: %v", err)
+			}
+		}()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -125,49 +191,325 @@ func main() {
 	for {
 		select {
 		case err := <-errCh:
+			if uiSrv != nil {
+				_ = uiSrv.Shutdown()
+			}
 			if err != nil {
 				log.Fatalf("dns stub: %v", err)
 			}
 			return
 		case s := <-sig:
 			if s == syscall.SIGHUP {
-				log.Printf("SIGHUP: reloading %s", loadedPath)
-				newFile, newRules, path, err := loadAgentConfig(loadedPath, "")
-				if err != nil {
+				log.Printf("SIGHUP: reloading %s", state.pathLocked())
+				if err := state.applyLive(srv, &dpApplier, &dpIface); err != nil {
 					log.Printf("reload failed: %v (keeping previous rules)", err)
 					continue
 				}
-				loadedPath = path
-				_ = newFile
-				srv.SetRules(newRules)
-				// Re-apply default-path if iface changed and we have a live controller.
-				if dpApplier != nil {
-					newIface := newRules.DefaultPath.Interface
-					if newIface != dpIface {
-						if dpIface != "" {
-							_ = dpApplier.RemoveDefaultPath(dpIface)
-						}
-						if newIface != "" {
-							if err := dpApplier.ApplyDefaultPath(newIface); err != nil {
-								log.Printf("default-path reload apply %s: %v", newIface, err)
-							} else {
-								log.Printf("default-path reloaded iface=%s", newIface)
-								dpIface = newIface
-							}
-						} else {
-							dpIface = ""
-						}
-					}
-				}
-				log.Printf("reloaded rules: %s", dnsstub.FormatRuleSummary(newRules))
+				log.Printf("reloaded rules: %s", dnsstub.FormatRuleSummary(state.get().RulesConfig()))
 				continue
 			}
 			log.Printf("signal %s, shutting down (%d active pin(s))", s, len(pinMgr.List()))
 			cancel()
+			if uiSrv != nil {
+				_ = uiSrv.Shutdown()
+			}
 			_ = srv.Shutdown()
 			return
 		}
 	}
+}
+
+type agentState struct {
+	mu     sync.Mutex
+	file   *appconfig.File
+	path   string
+	pins   string
+	dpMode string
+}
+
+func (s *agentState) get() *appconfig.File {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.file
+}
+
+func (s *agentState) pathLocked() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.path
+}
+
+func (s *agentState) set(f *appconfig.File, path, pins, dpMode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.file = f
+	s.path = path
+	s.pins = pins
+	s.dpMode = dpMode
+}
+
+func (s *agentState) applyLive(dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	s.mu.Lock()
+	path := s.path
+	pins := s.pins
+	s.mu.Unlock()
+	if path == "" {
+		return fmt.Errorf("no config path")
+	}
+	newFile, err := appconfig.LoadFile(path)
+	if err != nil {
+		return err
+	}
+	newRules := newFile.RulesConfig()
+	s.set(newFile, path, pins, newFile.Agent.DefaultPathMode)
+	dns.SetRules(newRules)
+	if err := syncDefaultPath(newFile, pins, dpApplier, dpIface); err != nil {
+		return err
+	}
+	// Browser traffic only hits the stub if systemd-resolved Domains= includes the rule.
+	if err := modeb.SyncFromConfig(newFile); err != nil {
+		log.Printf("mode B Domains sync: %v", err)
+	} else if doms := modeb.RoutingDomains(newFile.Rules); len(doms) > 0 {
+		log.Printf("mode B Domains synced (%d): %s", len(doms), strings.Join(doms, " "))
+	}
+	return nil
+}
+
+func (s *agentState) selectConfig(path string, dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	path, err := appconfig.AssertAllowedConfigPath(path)
+	if err != nil {
+		return err
+	}
+	newFile, err := appconfig.LoadFile(path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	pins := s.pins
+	if p := strings.TrimSpace(newFile.Agent.Pins); p != "" {
+		pins = p
+	}
+	s.mu.Unlock()
+	s.set(newFile, path, pins, newFile.Agent.DefaultPathMode)
+	dns.SetRules(newFile.RulesConfig())
+	log.Printf("selected config %s", path)
+	return syncDefaultPath(newFile, pins, dpApplier, dpIface)
+}
+
+func (s *agentState) saveYAML(raw string, dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	s.mu.Lock()
+	path := s.path
+	s.mu.Unlock()
+	if path == "" {
+		return fmt.Errorf("no active config path")
+	}
+	if _, err := appconfig.AssertAllowedConfigPath(path); err != nil {
+		return err
+	}
+	f, err := appconfig.Parse([]byte(raw))
+	if err != nil {
+		return err
+	}
+	if err := appconfig.SaveFile(path, f); err != nil {
+		return err
+	}
+	return s.applyLive(dns, dpApplier, dpIface)
+}
+
+func (s *agentState) newConfig(name string) (string, error) {
+	path, err := appconfig.NewConfigPath(name)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("already exists: %s", path)
+	}
+	if err := appconfig.SaveFile(path, appconfig.Default()); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (s *agentState) deleteConfig(path string) error {
+	path, err := appconfig.AssertAllowedConfigPath(path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	active := s.path
+	s.mu.Unlock()
+	if filepath.Clean(active) == filepath.Clean(path) {
+		return fmt.Errorf("cannot delete active config %s — select another first", path)
+	}
+	return os.Remove(path)
+}
+
+func (s *agentState) addRule(in webui.RuleInput, dns *dnsstub.Server, pins *pathpin.Manager, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	s.mu.Lock()
+	f := s.file
+	path := s.path
+	s.mu.Unlock()
+	if f == nil || path == "" {
+		return fmt.Errorf("no active config")
+	}
+	in = expandRuleInput(in)
+	rule := webui.RuleFromInput(in, f)
+	clone := *f
+	clone.Rules = append(append([]rules.Rule{}, f.Rules...), rule)
+	if err := appconfig.SaveFile(path, &clone); err != nil {
+		return err
+	}
+	if err := s.applyLive(dns, dpApplier, dpIface); err != nil {
+		return err
+	}
+	// Static IP matches never go through DNS — pin them now.
+	if pins != nil {
+		for _, raw := range in.IPs {
+			ip := net.ParseIP(strings.TrimSpace(raw))
+			if ip == nil {
+				if _, n, err := net.ParseCIDR(raw); err == nil {
+					ip = n.IP
+				}
+			}
+			if ip == nil || ip.To4() == nil {
+				continue
+			}
+			if _, err := pins.PinA(ip.To4(), rule.Interface, rule.Name, 24*time.Hour); err != nil {
+				log.Printf("pin static %s via %s: %v", ip, rule.Interface, err)
+			} else {
+				log.Printf("pinned static %s via %s (rule %s)", ip, rule.Interface, rule.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// expandRuleInput adds *.base when the user enters a bare domain (browser hits www/cdn hosts).
+func expandRuleInput(in webui.RuleInput) webui.RuleInput {
+	seen := map[string]struct{}{}
+	var domains []string
+	for _, d := range in.Domains {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if _, ok := seen[d]; !ok {
+			seen[d] = struct{}{}
+			domains = append(domains, d)
+		}
+		if strings.HasPrefix(d, "*.") {
+			continue
+		}
+		wild := "*." + strings.TrimPrefix(strings.ToLower(d), "*.")
+		if _, ok := seen[wild]; !ok {
+			seen[wild] = struct{}{}
+			domains = append(domains, wild)
+		}
+	}
+	in.Domains = domains
+	return in
+}
+
+func (s *agentState) saveSettings(listen, uiListen, pinsMode, dpModeVal, dnsUpstream string, dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	s.mu.Lock()
+	f := s.file
+	path := s.path
+	s.mu.Unlock()
+	if f == nil || path == "" {
+		return fmt.Errorf("no active config")
+	}
+	clone := *f
+	if strings.TrimSpace(listen) != "" {
+		clone.Agent.Listen = strings.TrimSpace(listen)
+	}
+	if uiListen != "" {
+		clone.Agent.UIListen = strings.TrimSpace(uiListen)
+	}
+	if strings.TrimSpace(pinsMode) != "" {
+		clone.Agent.Pins = strings.TrimSpace(pinsMode)
+		s.mu.Lock()
+		s.pins = clone.Agent.Pins
+		s.mu.Unlock()
+	}
+	if strings.TrimSpace(dpModeVal) != "" {
+		clone.Agent.DefaultPathMode = strings.TrimSpace(dpModeVal)
+	}
+	if strings.TrimSpace(dnsUpstream) != "" {
+		clone.Agent.DNSUpstream = strings.TrimSpace(dnsUpstream)
+	}
+	if err := appconfig.SaveFile(path, &clone); err != nil {
+		return err
+	}
+	return s.applyLive(dns, dpApplier, dpIface)
+}
+
+func syncDefaultPath(f *appconfig.File, pins string, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	mode := f.Agent.DefaultPathMode
+	iface := f.DefaultPath.Interface
+	live := mode == "netlink" || (mode == "auto" && pins == "netlink")
+	c := *dpApplier
+	if live && c == nil {
+		var err error
+		c, _, err = selectDefaultPath(mode, pins)
+		if err != nil {
+			return err
+		}
+		*dpApplier = c
+	}
+	if c == nil {
+		return nil
+	}
+	if !live || iface == "" {
+		if *dpIface != "" {
+			_ = c.RemoveDefaultPath(*dpIface)
+			*dpIface = ""
+		}
+		return nil
+	}
+	if *dpIface != "" && *dpIface != iface {
+		_ = c.RemoveDefaultPath(*dpIface)
+	}
+	if err := c.ApplyDefaultPath(iface); err != nil {
+		return err
+	}
+	*dpIface = iface
+	return nil
+}
+
+func (s *agentState) saveDefaultPath(iface, mode string, dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
+	s.mu.Lock()
+	if s.path == "" {
+		s.mu.Unlock()
+		return fmt.Errorf("no config path to write")
+	}
+	f := s.file
+	if f == nil {
+		s.mu.Unlock()
+		return fmt.Errorf("no config loaded")
+	}
+	f.DefaultPath.Interface = iface
+	f.Agent.DefaultPathMode = mode
+	if iface == "" {
+		f.Agent.DefaultPathMode = "off"
+		mode = "off"
+	}
+	path := s.path
+	pins := s.pins
+	if err := appconfig.SaveFile(path, f); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	reloaded, err := appconfig.LoadFile(path)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.file = reloaded
+	s.dpMode = reloaded.Agent.DefaultPathMode
+	s.mu.Unlock()
+
+	dns.SetRules(reloaded.RulesConfig())
+	return syncDefaultPath(reloaded, pins, dpApplier, dpIface)
 }
 
 func loadAgentConfig(configPath, rulesPath string) (*appconfig.File, *rules.Config, string, error) {
@@ -183,7 +525,7 @@ func loadAgentConfig(configPath, rulesPath string) (*appconfig.File, *rules.Conf
 		return f, f.RulesConfig(), configPath, nil
 	}
 	if rulesPath == "" {
-		rulesPath = "configs/example.rules.yaml"
+		rulesPath = "examples/example.rules.yaml"
 		fmt.Fprintf(os.Stderr, "warning: no config found (tried GENESIS_CONFIG, configs/local.yaml, ~/.config/genesis/config.yaml)\n")
 		fmt.Fprintf(os.Stderr, "warning: falling back to -rules %s — run: go run ./cmd/ctl setup\n", rulesPath)
 	}
