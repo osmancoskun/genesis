@@ -77,7 +77,7 @@ func main() {
 		} else if p := appconfig.FindExisting(); p != "" {
 			path = p
 		} else {
-			path = "configs/example.rules.yaml"
+			path = "examples/example.rules.yaml"
 		}
 		if f, err := appconfig.LoadFile(path); err == nil {
 			printRules(f.RulesConfig())

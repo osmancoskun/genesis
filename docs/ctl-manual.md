@@ -4,7 +4,8 @@ Genesis is configured with one YAML file (agent + rules together).
 Interactive entry points: `go run ./cmd/ctl menu` or `go run ./cmd/ctl setup`.
 
 Worked Discord + Ethernet example: [`configs/discord.config.yaml`](../configs/discord.config.yaml).  
-Your live file is usually `configs/local.yaml` (gitignored) or `GENESIS_CONFIG`.
+Your live file is usually `configs/local.yaml` (gitignored) or `GENESIS_CONFIG`.  
+Rules-only demos live under [`examples/`](../examples/) (not listed in the Web UI).
 
 ---
 

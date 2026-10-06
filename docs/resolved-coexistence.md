@@ -14,7 +14,7 @@
 Start:
 
 ```bash
-go run ./cmd/agent -rules configs/example.rules.yaml -listen 127.0.0.1:5353 -pins dry-run
+go run ./cmd/agent -rules examples/example.rules.yaml -listen 127.0.0.1:5353 -pins dry-run
 ```
 
 Use this mode on a daily driver laptop. It never fights resolved for `:53`.

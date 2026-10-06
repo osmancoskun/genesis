@@ -14,9 +14,10 @@ docker/**/.build/
 *.a
 *.so
 
-# Local genesis config from ctl setup (keep gitignored;
-# ship examples under configs/*.rules.yaml instead)
+# Local / Web UI genesis configs (keep examples under examples/)
 configs/local.yaml
+configs/local-*.yaml
+configs/local-copy.yaml
 
 # Go
 *.exe
