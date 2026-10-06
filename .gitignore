@@ -1,12 +1,29 @@
-# Binaries
+# Built binaries (repo-root go build -o …)
 /bin/
 /dist/
+/build/
+/ctl
+/agent
+/verify
+/genesis
+
+# Demo / compose build artifacts
+docker/split/.build/
+docker/**/.build/
+*.o
+*.a
+*.so
+
+# Local genesis config from ctl setup (keep gitignored;
+# ship examples under configs/*.rules.yaml instead)
+configs/local.yaml
 
 # Go
 *.exe
 *.test
 *.out
 coverage.out
+coverage.html
 
 # Editor / OS
 .idea/
