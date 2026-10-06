@@ -1,0 +1,25 @@
+# Demo rules for answer→pin dry-run (product loop).
+# Replace `lo` with a real NIC (e.g. eno1) only when you have CAP_NET_RAW for
+# SO_BINDTODEVICE. Do NOT point this at VPN/Tailscale interfaces you need up.
+#
+# Without bind caps, prefer the unit demo:
+#   go test ./internal/dnsstub -run TestAnswerToPinDryRunLifecycle -v
+version: 1
+defaults:
+  dns: 9.9.9.9
+  pin_connections: true
+  on_iface_down: fail_closed
+
+rules:
+  - name: demo-example-com
+    match:
+      domains:
+        - example.com
+        - "*.example.com"
+    dns: 9.9.9.9
+    # lo: DNS bind may still fail for public resolvers; use for dry-run pin path
+    # after a successful answer (see unit test). For live dig with unbound DNS,
+    # temporarily use interface: auto (pins skipped) or grant CAP_NET_RAW and
+    # set a real NIC name.
+    interface: lo
+    pin_connections: true
