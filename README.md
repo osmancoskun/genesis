@@ -1,154 +1,168 @@
 # Genesis
 
-Self-hosted Linux **desktop/laptop** agent that steers DNS and connection traffic onto preferred interfaces (VPN, NICs) using domain / subdomain / IP rules.
+Self-hosted Linux agent that steers DNS and connection traffic onto preferred interfaces (VPN, NICs) using domain / subdomain / IP rules.
 
-Architecture: [`docs/dns-redirector-plan.md`](docs/dns-redirector-plan.md).  
-Resolved coexistence: [`docs/resolved-coexistence.md`](docs/resolved-coexistence.md).  
-**ctl / config / setup manual:** [`docs/ctl-manual.md`](docs/ctl-manual.md).  
-**Background service (up/down/apply):** [`docs/service.md`](docs/service.md).  
-Conventions: [`docs/engineering-conventions.md`](docs/engineering-conventions.md).
+Docs: [architecture](docs/dns-redirector-plan.md) · [ctl manual](docs/ctl-manual.md) · [service](docs/service.md) · [resolved coexistence](docs/resolved-coexistence.md) · [conventions](docs/engineering-conventions.md)
 
-## Status
+MVP defaults: **fail closed**, IPv4-first pins, DoH warn-only, listen `127.0.0.1:5553` (not mDNS 5353).
 
-Phase 0→1 on this machine:
+---
 
-- `cmd/verify` — vet + staticcheck + nilaway
-- `cmd/ctl` — interactive **menu** / **setup** wizard, doctor, rules, status, pin / default-path dry-run
-- `cmd/agent` — localhost DNS stub + iface-bound DNS + path pins (`-config` or `-rules`)
-
-MVP defaults: **fail closed**, **IPv4-first** pins, **DoH warn-only**, **Mode A** listen `127.0.0.1:5553` (avoids mDNS/Avahi on 5353; does not take over systemd-resolved).
-
-Example Discord + Ethernet split: [`configs/discord.config.yaml`](configs/discord.config.yaml).
-
-**To run the Discord example** you can either copy to the default path or pass `-config`:
+## Fedora: install requirements
 
 ```bash
-# Option A — copy to default local.yaml
-cp configs/discord.config.yaml configs/local.yaml
-# edit eno1 / CloudflareWARP if needed
-./scripts/host-resolved-modeb.sh install 5553
-go run ./cmd/ctl menu   # → 2) run
+# Build tools + Go
+sudo dnf install -y golang git make
 
-# Option B — start with the example file directly (no copy)
-./scripts/host-resolved-modeb.sh install 5553
-go run ./cmd/ctl -config configs/discord.config.yaml run
-# or: go run ./cmd/agent -config configs/discord.config.yaml
+# Ops / debug helpers (agent itself uses netlink, not these CLIs)
+sudo dnf install -y bind-utils iproute systemd sudo
+
+# Optional — Discord-via-WARP workflow
+# Install Cloudflare WARP for Linux, then:
+#   warp-cli registration new   # if needed
+#   warp-cli connect
 ```
 
-`configs/local.yaml` is gitignored (your machine-local active config).
+| Tool | Fedora package | Used for |
+|------|----------------|----------|
+| `go` | `golang` | Build `cmd/agent`, `cmd/ctl` |
+| `dig` | `bind-utils` | Test DNS (`dig @127.0.0.1 -p 5553 …`) |
+| `ip` / `ss` | `iproute` | Inspect routes / listening ports |
+| `resolvectl` / `systemctl` | `systemd` | Mode B + genesis service |
+| `sudo` | `sudo` | Live netlink / install unit |
+| `warp-cli` | Cloudflare WARP | Optional VPN iface `CloudflareWARP` |
 
-## Requirements
+Live pins need **`CAP_NET_ADMIN`** (and often **`CAP_NET_RAW`** for bind-to-device). Without them, use `pins: dry-run` or let `ctl` elevate with `sudo`.
 
-### Runtime (agent / ctl)
+---
 
-| Need | Why |
-|------|-----|
-| **Linux** (amd64/arm64) | Policy routing via netlink |
-| **Go 1.22+** | Build `cmd/agent`, `cmd/ctl`, `cmd/verify` |
-| **`CAP_NET_ADMIN`** (or root) | Live `pins=netlink` / `default_path_mode=netlink` |
-| **`CAP_NET_RAW`** (or root) | `SO_BINDTODEVICE` when DNS is bound to a named iface |
-
-The agent talks to the kernel with **netlink** and reads `/proc` — it does **not** require `ip`, `ss`, or `netstat` on the PATH.
-
-### Host helpers & debugging (recommended)
-
-| Tool | Package (Fedora) | Used for |
-|------|------------------|----------|
-| `dig` | `bind-utils` | Probe agent / Mode B (`dig @127.0.0.1 -p 5553 …`) |
-| `ip` | `iproute` | Inspect rules/routes (`ip rule`, `ip route get`) — scripts + ops |
-| `ss` | `iproute` | See who owns UDP ports (e.g. `:5553`) |
-| `resolvectl` | `systemd` | Mode B / split-DNS checks |
-| `systemctl` | `systemd` | Mode B reload; **service** `ctl up/down/apply` |
-| `sudo` | `sudo` | Elevate for netlink / systemd unit |
-
-Optional for the Discord/WARP workflow: **`warp-cli`** (Cloudflare WARP), iface name like `CloudflareWARP`.
-
-`netstat` is **not** required (`ss` replaces it). There is no `ns` tool dependency.
-
-### Background service
-
-Tailscale-like daemon UX: [`docs/service.md`](docs/service.md) — `ctl up` / `down` / `apply` (hot reload via SIGHUP), unit in `deploy/systemd/genesis.service`.
-
-## Quick start (safe)
+## Build
 
 ```bash
-export PATH="$HOME/.local/go/bin:$PATH"   # if needed
-
-# Interactive: setup wizard → menu (setup / run / view config / list nets / default-path)
-go run ./cmd/ctl setup
-go run ./cmd/ctl menu
-
-# Or start from the Discord example
-cp configs/discord.config.yaml configs/local.yaml   # edit iface names
-./scripts/host-resolved-modeb.sh install 5553
-go run ./cmd/ctl menu    # → 2) run
-
-# Same without copying:
-go run ./cmd/ctl -config configs/discord.config.yaml run
-go run ./cmd/agent -config configs/discord.config.yaml
-
-# Or non-interactive checks
-go run ./cmd/ctl doctor
-go run ./cmd/ctl ifaces
-go run ./cmd/ctl config show
-go run ./cmd/ctl pin check
-go run ./cmd/ctl pin dry-run --dst 192.0.2.10 --iface eno1
-go run ./cmd/ctl default-path dry-run --iface wg0
-
-# Agent loads configs/local.yaml (from setup) or GENESIS_CONFIG
-go run ./cmd/agent -config configs/local.yaml
-
-dig @127.0.0.1 -p 5553 example.com A
-
+git clone git@github.com:osmancoskun/genesis.git
+cd genesis
+go build -o genesis-agent ./cmd/agent
+go build -o genesis-ctl ./cmd/ctl
+# optional checks
 make verify && make test
 ```
 
-Env overrides: `GENESIS_CONFIG`, `GENESIS_LISTEN`.
+---
 
-### Docker demos (host routing untouched)
-
-```bash
-make demo-docker        # two upstream DNS + agent steer
-make demo-docker-split  # lan vs warp-like path; discord.test bypass (no --network=host)
-```
-
-### Demo answer → pin (dry-run)
-
-Full product loop without touching the kernel or VPN ifaces:
+## Basic use (foreground)
 
 ```bash
-# 1) Unit demo: successful A → dry-run APPLY → refresh → REMOVE on TTL expiry
-go test ./internal/dnsstub -run TestAnswerToPinDryRunLifecycle -v
+# 1) Config — copy example or run setup
+cp configs/discord.config.yaml configs/local.yaml
+# edit eno1 / CloudflareWARP to match: go run ./cmd/ctl ifaces
+# or: go run ./cmd/ctl setup
 
-# 2) Planned kernel ops only (no DNS):
-go run ./cmd/ctl pin dry-run --dst 192.0.2.10 --iface eno1
+# 2) (Discord in browser) send Discord* DNS to the agent
+./scripts/host-resolved-modeb.sh install 5553
+# Turn OFF browser Secure DNS / DoH
 
-# 3) Live agent with -pins dry-run: matching A answers log
-#    "pin install/refresh …" and print dry-run APPLY lines.
-#    Named iface + SO_BINDTODEVICE needs CAP_NET_RAW; without it you get a clear error.
-#    Do not point rules at VPN/Tailscale links you need.
-go run ./cmd/agent -rules configs/demo-pin.rules.yaml -listen 127.0.0.1:5553 -pins dry-run
+# 3) Run agent (sudo if pins/default_path are netlink)
+go run ./cmd/ctl -config configs/local.yaml run
+# or: ./genesis-ctl -config configs/local.yaml run
+# or: sudo ./genesis-agent -config configs/local.yaml
+
+# 4) Check
+dig @127.0.0.1 -p 5553 discord.com A
+resolvectl query discord.com
 ```
 
-Live netlink pins (`-pins netlink`) only after `pin check` succeeds. Prefer TEST-NET destinations (`192.0.2.0/24`) when experimenting.
+Interactive menu: `go run ./cmd/ctl menu` (setup, run, view config, ifaces, default-path, service).
 
-## Pin safety
+Without copying the example:
 
-- Owned policy tables **18000–18999** and pin rule priority **5000** (default-path **5100**; below WARP ~5209)
-- Never edits main-table default route; never toggles interfaces
-- Missing caps → clear error + doctor/`pin check` hint (no panic, no host-network wipe)
+```bash
+go run ./cmd/ctl -config configs/discord.config.yaml run
+```
+
+Env: `GENESIS_CONFIG`, `GENESIS_LISTEN`.
+
+Stop foreground agent with **Ctrl-C**. Cleanup policy rules / Mode B: `./scripts/host-cleanup.sh`.
+
+---
+
+## Run as a systemd service
+
+Like Tailscale: daemon in the background, `ctl` for up / down / apply.
+
+```bash
+# Install config + binary + unit
+sudo install -d /etc/genesis
+sudo cp configs/discord.config.yaml /etc/genesis/config.yaml
+# edit ifaces in /etc/genesis/config.yaml
+
+go build -o /tmp/genesis-agent ./cmd/agent
+sudo install -m 755 /tmp/genesis-agent /usr/local/bin/genesis-agent
+sudo cp deploy/systemd/genesis.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now genesis.service
+
+# Optional Mode B for Discord domains → :5553
+./scripts/host-resolved-modeb.sh install 5553
+```
+
+Operator commands:
+
+| Command | Meaning |
+|---------|---------|
+| `go run ./cmd/ctl up` | `systemctl start genesis` |
+| `go run ./cmd/ctl down` | stop |
+| `go run ./cmd/ctl restart` | restart |
+| `go run ./cmd/ctl apply` | hot-reload config (**SIGHUP**) after editing YAML |
+| `go run ./cmd/ctl service-status` | status |
+
+After editing `/etc/genesis/config.yaml`:
+
+```bash
+sudoedit /etc/genesis/config.yaml
+go run ./cmd/ctl apply
+```
+
+Details: [`docs/service.md`](docs/service.md). Unit: [`deploy/systemd/genesis.service`](deploy/systemd/genesis.service).
+
+---
+
+## Discord example (checklist)
+
+1. Config: `cp configs/discord.config.yaml configs/local.yaml` **or** `-config configs/discord.config.yaml`
+2. Edit `eno1` / `CloudflareWARP` if needed (`ctl ifaces`)
+3. `pins: netlink`, `default_path_mode: netlink`, `default_path.interface: eno1`
+4. Mode B + disable browser DoH
+5. `ctl run` or systemd `ctl up`
+6. Agent log should show `pin install … via CloudflareWARP` for `discord.com` **and** CDN hosts (`*.discordapp.com`, `*.discord.gg`, …)
+
+Full field / setup reference: [`docs/ctl-manual.md`](docs/ctl-manual.md).
+
+---
+
+## Safety
+
+- Owned tables **18000–18999**; pin prio **5000**; default-path **5100** (below typical WARP ~5209)
+- Never edits main-table default; never toggles links
+- Prefer `ctl pin dry-run` / `default-path dry-run` before live netlink
+
+---
+
+## Docker demos (host routing untouched)
+
+```bash
+make demo-docker
+make demo-docker-split
+```
+
+---
 
 ## Layout
 
 ```
-cmd/verify, cmd/ctl, cmd/agent
-internal/appconfig, rules, doctor, dnsstub, ifacedns, netinfo, pathpin
-configs/          # example + host rules; local.yaml from setup (gitignored)
+cmd/agent cmd/ctl cmd/verify
+internal/appconfig rules doctor dnsstub ifacedns netinfo pathpin
+configs/          # discord.config.yaml + examples; local.yaml gitignored
+deploy/systemd/   # genesis.service
 docs/
+scripts/          # Mode B, host-try, cleanup
 ```
-
-## Conventions
-
-- Conventional commits: `feat(scope): …` / `fix` / `chore` / `test`
-- English-only code/comments; see `docs/engineering-conventions.md`
-- `make verify` on Go changes
