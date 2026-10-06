@@ -20,3 +20,11 @@ func (a *NetlinkApplier) Apply(Pin) error {
 func (a *NetlinkApplier) Remove(Pin) error {
 	return FormatPrivError(fmt.Errorf("netlink pins require Linux"))
 }
+
+func (a *NetlinkApplier) ApplyDefaultPath(string) error {
+	return FormatPrivError(fmt.Errorf("netlink default-path requires Linux"))
+}
+
+func (a *NetlinkApplier) RemoveDefaultPath(string) error {
+	return FormatPrivError(fmt.Errorf("netlink default-path requires Linux"))
+}

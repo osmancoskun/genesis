@@ -1,4 +1,4 @@
-// Package rules defines the declarative path-director rule model and YAML loader.
+// Package rules defines the declarative genesis rule model and YAML loader.
 package rules
 
 import (
@@ -22,9 +22,17 @@ const (
 
 // Config is a loaded rule pack.
 type Config struct {
-	Version  int      `yaml:"version"`
-	Defaults Defaults `yaml:"defaults"`
-	Rules    []Rule   `yaml:"rules"`
+	Version     int         `yaml:"version"`
+	Defaults    Defaults    `yaml:"defaults"`
+	DefaultPath DefaultPath `yaml:"default_path"`
+	Rules       []Rule      `yaml:"rules"`
+}
+
+// DefaultPath steers non-pinned IPv4 via a chosen iface (policy default in an owned table).
+// Empty Interface disables the feature.
+type DefaultPath struct {
+	Interface   string      `yaml:"interface"`
+	OnIfaceDown OnIfaceDown `yaml:"on_iface_down"`
 }
 
 // Defaults apply when a rule omits a field.
@@ -87,6 +95,16 @@ func (c *Config) Validate() error {
 	if c.Defaults.OnIfaceDown != FailClosed && c.Defaults.OnIfaceDown != FailOpen {
 		return fmt.Errorf("defaults.on_iface_down: want fail_closed or fail_open, got %q", c.Defaults.OnIfaceDown)
 	}
+	if c.DefaultPath.OnIfaceDown == "" {
+		c.DefaultPath.OnIfaceDown = c.Defaults.OnIfaceDown
+	}
+	if c.DefaultPath.OnIfaceDown != FailClosed && c.DefaultPath.OnIfaceDown != FailOpen {
+		return fmt.Errorf("default_path.on_iface_down: want fail_closed or fail_open, got %q", c.DefaultPath.OnIfaceDown)
+	}
+	if dp := strings.TrimSpace(c.DefaultPath.Interface); dp == "auto" {
+		return fmt.Errorf("default_path.interface: want a real iface name or empty (disabled), not %q", c.DefaultPath.Interface)
+	}
+	c.DefaultPath.Interface = strings.TrimSpace(c.DefaultPath.Interface)
 	for i := range c.Rules {
 		r := &c.Rules[i]
 		if r.Name == "" {
@@ -186,4 +204,9 @@ func ipInSpec(ip net.IP, spec string) bool {
 	}
 	parsed := net.ParseIP(spec)
 	return parsed != nil && parsed.Equal(ip)
+}
+
+// DefaultPathEnabled reports whether catch-all default path is configured.
+func (c *Config) DefaultPathEnabled() bool {
+	return c != nil && strings.TrimSpace(c.DefaultPath.Interface) != ""
 }

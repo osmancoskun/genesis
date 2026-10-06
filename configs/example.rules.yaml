@@ -1,4 +1,4 @@
-# Example local rule pack for the path-director agent.
+# Example local rule pack for the genesis agent.
 # Copy and edit; first match wins. MVP defaults: fail_closed, v4-first, pin_connections true.
 # Demo uses interface: auto so unprivileged smoke tests do not SO_BINDTODEVICE.
 version: 1
@@ -7,6 +7,13 @@ defaults:
   interface: auto
   pin_connections: true
   on_iface_down: fail_closed
+
+# Optional: steer non-pinned IPv4 via a chosen NIC/VPN (owned table 18990).
+# Leave commented unless you intend policy default-path. Never points at tunnels
+# you cannot afford to mis-route; use: go run ./cmd/ctl default-path dry-run --iface <iface>
+# default_path:
+#   interface: wg0
+#   on_iface_down: fail_closed
 
 rules:
   - name: example-corp

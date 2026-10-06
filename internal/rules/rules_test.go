@@ -64,3 +64,43 @@ rules:
 		t.Fatalf("want fail_closed, got %q", cfg.Defaults.OnIfaceDown)
 	}
 }
+
+func TestDefaultPathConfig(t *testing.T) {
+	cfg, err := Parse([]byte(`
+version: 1
+defaults:
+  dns: 9.9.9.9
+  on_iface_down: fail_closed
+default_path:
+  interface: wg0
+rules:
+  - name: corp
+    match:
+      domains: ["corp.example"]
+    interface: wg0
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DefaultPathEnabled() || cfg.DefaultPath.Interface != "wg0" {
+		t.Fatalf("default_path: %+v", cfg.DefaultPath)
+	}
+	if cfg.DefaultPath.OnIfaceDown != FailClosed {
+		t.Fatalf("on_iface_down: %q", cfg.DefaultPath.OnIfaceDown)
+	}
+}
+
+func TestDefaultPathRejectsAuto(t *testing.T) {
+	_, err := Parse([]byte(`
+version: 1
+default_path:
+  interface: auto
+rules:
+  - name: x
+    match:
+      domains: ["x.test"]
+`))
+	if err == nil {
+		t.Fatal("expected error for default_path.interface=auto")
+	}
+}

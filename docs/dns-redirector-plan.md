@@ -57,7 +57,7 @@ Ship a privileged Linux **client agent** that:
 4. On each answer (and for static IP rules), installs **ephemeral policy routes / nftables marks** so connection traffic to those destinations uses the same interface.  
 5. Syncs rule packs from an optional **self-hosted server** (Git-like config, API, or pull).
 
-Call the product something like **path director** / **iface DNS agent** in docs; keep “DNS redirector” only as the user’s label.
+Call the product **genesis** in docs and CLI; keep “DNS redirector” / “path director” only as historical labels in older notes.
 
 ### Why this, not the common alternatives
 
@@ -208,9 +208,10 @@ rules:
 ### Pin implementation sketch
 
 - Maintain route table per managed iface in owned range **18000–18999** (never main table).  
-- `ip rule` `to <dst>/32` lookup that table at priority **18000**.  
+- `ip rule` `to <dst>/32` lookup that table at priority **5000** (below typical WARP ~5209).  
 - Prefer **nftables** marks later for scale; MVP uses `to <ip>` rules.  
 - Backends: `-pins dry-run` (default safe path without caps), `-pins netlink` when `CAP_NET_ADMIN` present, `-pins auto` picks netlink or dry-run.  
+- **Default path** (optional `default_path.interface` in rules): installs `0.0.0.0/0` in owned table **18990** with catch-all rule priority **5100** (after per-dst pins at **5000**). Connected IPv4 prefixes in main get preserve rules at **5050** (`lookup main`). Priorities stay below typical Cloudflare WARP catch-all (~5209). Never edits the main-table default route; iface down → refuse (fail closed). CLI: `ctl default-path dry-run|check`.  
 - Track pins in agent memory; expiry = max(DNS TTL, floor).  
 - See `internal/pathpin` and `docs/resolved-coexistence.md`.
 

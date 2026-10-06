@@ -194,15 +194,34 @@ func gatewayForLink(ifindex int) net.IP {
 	if err != nil {
 		return nil
 	}
+	var fallback net.IP
 	for _, r := range routes {
-		if r.LinkIndex != ifindex {
+		if r.LinkIndex != ifindex || r.Gw == nil {
 			continue
 		}
-		if r.Dst == nil && r.Gw != nil { // default via this iface
-			return r.Gw
+		if isDefaultDst(r.Dst) {
+			// Prefer main-table default (0 / 254); still accept any table.
+			if r.Table == 0 || r.Table == unixTableMain {
+				return r.Gw.To4()
+			}
+			if fallback == nil {
+				fallback = r.Gw.To4()
+			}
 		}
 	}
-	return nil
+	return fallback
+}
+
+func isDefaultDst(dst *net.IPNet) bool {
+	if dst == nil || dst.IP == nil {
+		return true // netlink often encodes default as nil Dst
+	}
+	ip4 := dst.IP.To4()
+	if ip4 == nil {
+		return false
+	}
+	ones, bits := dst.Mask.Size()
+	return bits == 32 && ones == 0 && ip4.IsUnspecified()
 }
 
 func isPerm(err error) bool {

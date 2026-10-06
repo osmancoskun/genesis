@@ -26,8 +26,10 @@ type Applier interface {
 // NoopApplier records nothing in the kernel (safe for unprivileged dry-runs).
 type NoopApplier struct{}
 
-func (NoopApplier) Apply(Pin) error  { return nil }
-func (NoopApplier) Remove(Pin) error { return nil }
+func (NoopApplier) Apply(Pin) error             { return nil }
+func (NoopApplier) Remove(Pin) error            { return nil }
+func (NoopApplier) ApplyDefaultPath(string) error  { return nil }
+func (NoopApplier) RemoveDefaultPath(string) error { return nil }
 
 // MinTTL is the floor applied to DNS TTLs when installing pins.
 const MinTTL = time.Second

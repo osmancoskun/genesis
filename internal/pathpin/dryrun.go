@@ -48,6 +48,29 @@ func (d *DryRunApplier) Remove(p Pin) error {
 	return nil
 }
 
+func (d *DryRunApplier) ApplyDefaultPath(iface string) error {
+	plan, err := BuildDefaultPathPlan(iface, 0, nil, nil)
+	if err != nil {
+		return err
+	}
+	line := "dry-run APPLY default-path: " + plan.Describe()
+	d.mu.Lock()
+	d.log = append(d.log, line)
+	d.mu.Unlock()
+	fmt.Fprintln(d.Out, line)
+	return nil
+}
+
+func (d *DryRunApplier) RemoveDefaultPath(iface string) error {
+	line := fmt.Sprintf("dry-run REMOVE default-path: ip rule del priority %d (table %d); ip rule del priority %d (preserve main); ip route del default table %d  # iface=%s",
+		DefaultPathPref, DefaultPathTable, MainPreservePref, DefaultPathTable, iface)
+	d.mu.Lock()
+	d.log = append(d.log, line)
+	d.mu.Unlock()
+	fmt.Fprintln(d.Out, line)
+	return nil
+}
+
 // Log returns a copy of dry-run lines (for tests).
 func (d *DryRunApplier) Log() []string {
 	d.mu.Lock()
