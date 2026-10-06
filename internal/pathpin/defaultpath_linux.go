@@ -83,6 +83,13 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
 	catch.Family = netlink.FAMILY_V4
 	catch.Table = plan.Table
 	catch.Priority = plan.Priority
+	// Match WARP's exemption: "not fwmark 0x100cf". Without Invert+Mark, WARP's
+	// own tunnel packets hit this catch-all, leave via eno1, and warp-cli stays
+	// Reconnecting while Discord pins still appear to work.
+	mask := uint32(0xffffffff)
+	catch.Mark = WarpExemptMark
+	catch.Mask = &mask
+	catch.Invert = true
 	if err := netlink.RuleAdd(catch); err != nil {
 		_ = a.RemoveDefaultPath(iface)
 		if isPerm(err) {

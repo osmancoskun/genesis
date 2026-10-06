@@ -18,6 +18,9 @@ func TestBuildDefaultPathPlan(t *testing.T) {
 	if !strings.Contains(desc, "default") || !strings.Contains(desc, "wg0") || !strings.Contains(desc, "18990") {
 		t.Fatalf("describe: %s", desc)
 	}
+	if !strings.Contains(desc, "fwmark") || !strings.Contains(desc, "WARP-exempt") {
+		t.Fatalf("expected WARP fwmark exemption in describe: %s", desc)
+	}
 }
 
 func TestBuildDefaultPathRefusesAuto(t *testing.T) {

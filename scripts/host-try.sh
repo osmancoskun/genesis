@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Host try-out: Discord via WARP + browser (Mode B DNS).
 #
-# IMPORTANT: With Cloudflare WARP connected, do NOT install our catch-all
-# default_path (prio 5100). It wins before WARP's rule (~5209) and kills the
-# WARP tunnel — then CloudflareWARP goes down and DNS falls apart.
+# IMPORTANT: With Cloudflare WARP connected, default_path (prio 5100) must
+# exempt WARP's fwmark 0x100cf (same as WARP rule 5209). Older agents without
+# that exemption forced tunnel packets onto eno1 and left warp-cli Reconnecting.
 #
 # Modes:
 #   ./scripts/host-try.sh                      # dry-run dig only
-#   HOST_LIVE=1 ./scripts/host-try.sh          # live Discord pins + Mode B (safe w/ WARP)
-#   HOST_LIVE=1 HOST_DEFAULT_PATH=1 ./scripts/host-try.sh  # DANGEROUS with WARP
-#
+#   HOST_LIVE=1 ./scripts/host-try.sh          # live Discord pins + Mode B
+#   HOST_LIVE=1 HOST_DEFAULT_PATH=1 ./scripts/host-try.sh  # eno1 catch-all + WARP pins
+
 # Browser: disable DoH, then open discord.com / discord.app
 # Emergency: ./scripts/host-cleanup.sh
 set -euo pipefail
@@ -52,7 +52,7 @@ if [[ "$MODE" == "1" ]]; then
   echo "  - pins=netlink (Discord* → CloudflareWARP)"
   echo "  - systemd-resolved Mode B: Discord* → ${LISTEN}"
   if [[ "$WANT_DP" == "1" ]]; then
-    echo "  - default-path=netlink via eno1  *** breaks WARP (prio 5100 < WARP 5209) ***"
+    echo "  - default-path=netlink via eno1 (exempts WARP fwmark 0x100cf so tunnel stays up)"
   else
     echo "  - default-path=off (required while WARP is connected; set HOST_DEFAULT_PATH=1 to force)"
   fi

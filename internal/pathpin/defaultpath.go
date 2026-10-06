@@ -16,6 +16,11 @@ const (
 	DefaultPathPref = 5100
 	// DefaultPathTable holds 0.0.0.0/0 via the chosen iface (never the main table).
 	DefaultPathTable = 18990
+	// WarpExemptMark is Cloudflare WARP's fwmark (rule 5209: "not fwmark 0x100cf").
+	// Our catch-all must use the same invert-mark so WARP tunnel/control packets
+	// still fall through to main/WARP instead of being forced onto eno1 (which
+	// leaves warp-cli stuck in Reconnecting).
+	WarpExemptMark = 0x100cf
 )
 
 // DefaultPathPlan is the kernel intent for "default traffic via iface" (dry-run + netlink).
@@ -68,7 +73,8 @@ func (p DefaultPathPlan) Describe() string {
 		}
 		fmt.Fprintf(&b, "; ip rule add to %s lookup main priority %d", pr.Dst.String(), pr.Priority)
 	}
-	fmt.Fprintf(&b, "; ip rule add lookup %d priority %d  # default-path iface=%s", p.Table, p.Priority, p.Interface)
+	fmt.Fprintf(&b, "; ip rule add not from all fwmark 0x%x lookup %d priority %d  # default-path iface=%s (WARP-exempt)",
+		WarpExemptMark, p.Table, p.Priority, p.Interface)
 	return b.String()
 }
 
