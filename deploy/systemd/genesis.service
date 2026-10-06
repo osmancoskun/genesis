@@ -1,0 +1,42 @@
+# genesis agent — system service (Tailscale-like background daemon)
+#
+# Install:
+#   sudo install -d /etc/genesis
+#   sudo cp configs/discord.config.yaml /etc/genesis/config.yaml   # edit ifaces
+#   go build -o /tmp/genesis-agent ./cmd/agent
+#   sudo install -m 755 /tmp/genesis-agent /usr/local/bin/genesis-agent
+#   sudo cp deploy/systemd/genesis.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now genesis.service
+#
+# Operator UX:
+#   go run ./cmd/ctl up | down | restart | apply | service-status
+#   apply = systemctl reload → SIGHUP → hot-reload YAML rules
+#
+# See docs/service.md
+
+[Unit]
+Description=genesis DNS stub and policy path pins
+Documentation=file:///usr/local/share/doc/genesis/service.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=GENESIS_CONFIG=/etc/genesis/config.yaml
+ExecStart=/usr/local/bin/genesis-agent -config /etc/genesis/config.yaml -pidfile /run/genesis/agent.pid
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+RuntimeDirectory=genesis
+
+ProtectSystem=strict
+ReadWritePaths=/run/genesis /etc/genesis
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
