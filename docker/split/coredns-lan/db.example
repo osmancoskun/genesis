@@ -1,0 +1,6 @@
+$ORIGIN example.test.
+@       30 IN SOA ns.example.test. admin.example.test. 1 3600 600 86400 30
+        30 IN NS  ns.example.test.
+ns      30 IN A   172.30.0.11
+www     30 IN A   10.30.0.2
+www     30 IN TXT "hello-from-lan-example"

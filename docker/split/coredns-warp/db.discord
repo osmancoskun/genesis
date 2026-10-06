@@ -1,0 +1,6 @@
+$ORIGIN discord.test.
+@       30 IN SOA ns.discord.test. admin.discord.test. 1 3600 600 86400 30
+        30 IN NS  ns.discord.test.
+ns      30 IN A   172.30.1.11
+www     30 IN A   10.30.1.9
+www     30 IN TXT "hello-from-warp-bypass"

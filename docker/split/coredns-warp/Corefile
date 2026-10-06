@@ -1,0 +1,5 @@
+discord.test:53 {
+    file /etc/coredns/db.discord
+    log
+    errors
+}

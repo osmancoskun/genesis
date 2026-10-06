@@ -1,0 +1,10 @@
+lan.test:53 {
+    file /etc/coredns/db.lan
+    log
+    errors
+}
+example.test:53 {
+    file /etc/coredns/db.example
+    log
+    errors
+}
