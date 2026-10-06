@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -24,13 +25,27 @@ type Server struct {
 	Pins     *pathpin.Manager
 	Logger   *log.Logger
 
+	mu  sync.RWMutex
 	udp *dns.Server
+}
+
+// SetRules atomically replaces the active rule pack (hot reload).
+func (s *Server) SetRules(cfg *rules.Config) {
+	s.mu.Lock()
+	s.Rules = cfg
+	s.mu.Unlock()
+}
+
+func (s *Server) rules() *rules.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Rules
 }
 
 // ListenAndServe starts the UDP stub (blocking).
 func (s *Server) ListenAndServe() error {
 	if s.Addr == "" {
-		s.Addr = "127.0.0.1:5353"
+		s.Addr = ListenAddr()
 	}
 	if s.Exchange == nil {
 		s.Exchange = ifacedns.UDPExchange
@@ -70,7 +85,7 @@ func (s *Server) handle(w dns.ResponseWriter, req *dns.Msg) {
 	q := req.Question[0]
 	name := q.Name
 
-	rule := s.Rules.MatchDomain(name)
+	rule := s.rules().MatchDomain(name)
 	if rule == nil {
 		s.Logger.Printf("no rule for %s", name)
 		msg.Rcode = dns.RcodeServerFailure
@@ -167,9 +182,10 @@ func ifaceDown(name string) bool {
 	return ifi.Flags&net.FlagUp == 0
 }
 
-// ListenAddr documents the default non-privileged listen address.
+// ListenAddr is the default non-privileged listen address.
+// Uses 5553 so it does not collide with mDNS/Avahi on UDP 5353.
 func ListenAddr() string {
-	return "127.0.0.1:5353"
+	return "127.0.0.1:5553"
 }
 
 // FormatRuleSummary is a short debug string.
