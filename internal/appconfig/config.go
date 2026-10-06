@@ -17,6 +17,10 @@ const (
 	EnvConfig = "GENESIS_CONFIG"
 	// EnvListen overrides agent.listen.
 	EnvListen = "GENESIS_LISTEN"
+	// EnvUI overrides agent.ui_listen.
+	EnvUI = "GENESIS_UI"
+	// DefaultUI is the local Web UI (TCP); DNS stays on DefaultListen (UDP).
+	DefaultUI = "127.0.0.1:8787"
 	// DefaultListen avoids UDP 5353 (mDNS/Avahi on many Linux desktops).
 	DefaultListen = "127.0.0.1:5553"
 	// DefaultDNS is used for rule upstreams and setup probes when unset.
@@ -35,6 +39,7 @@ type File struct {
 // Agent holds daemon runtime options.
 type Agent struct {
 	Listen          string `yaml:"listen"`
+	UIListen        string `yaml:"ui_listen"`         // empty = disabled; default in UI helper
 	Pins            string `yaml:"pins"`              // auto|dry-run|netlink|noop
 	DefaultPathMode string `yaml:"default_path_mode"` // auto|dry-run|netlink|off
 	DNSUpstream     string `yaml:"dns_upstream"`      // default upstream for new rules / probes
@@ -169,6 +174,25 @@ func (f *File) EffectiveListen() string {
 	return f.Agent.Listen
 }
 
+// EffectiveUIListen returns the Web UI bind address, or "" if disabled.
+// GENESIS_UI overrides. Explicit agent.ui_listen: "off" disables.
+func (f *File) EffectiveUIListen() string {
+	if v := strings.TrimSpace(os.Getenv(EnvUI)); v != "" {
+		if v == "off" || v == "disabled" {
+			return ""
+		}
+		return v
+	}
+	u := strings.TrimSpace(f.Agent.UIListen)
+	if u == "off" || u == "disabled" {
+		return ""
+	}
+	if u == "" {
+		return DefaultUI
+	}
+	return u
+}
+
 // SaveFile writes YAML to path (creates parent dirs).
 func SaveFile(path string, f *File) error {
 	if err := f.Normalize(); err != nil {
@@ -183,4 +207,144 @@ func SaveFile(path string, f *File) error {
 	}
 	header := "# genesis local config — generated/edited by ctl setup/menu\n"
 	return os.WriteFile(path, append([]byte(header), data...), 0o644)
+}
+
+// ConfigEntry is a discoverable config file for the Web UI / ctl.
+type ConfigEntry struct {
+	Path   string `json:"path"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+// ConfigsDir is the repo-local directory for genesis agent configs (not examples/).
+const ConfigsDir = "configs"
+
+// UserConfigDirName is under $HOME/.config.
+const UserConfigDirName = "genesis"
+
+// isListedConfigFile reports whether name belongs in the Web UI / ctl config list.
+// Excludes *.rules.yaml (examples / rules-only packs live under examples/).
+func isListedConfigFile(name string) bool {
+	low := strings.ToLower(strings.TrimSpace(name))
+	if !strings.HasSuffix(low, ".yaml") && !strings.HasSuffix(low, ".yml") {
+		return false
+	}
+	if strings.Contains(low, ".rules.") {
+		return false
+	}
+	return true
+}
+
+// UserConfigDir returns ~/.config/genesis (may not exist yet).
+func UserConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", UserConfigDirName)
+}
+
+// ListConfigFiles returns genesis YAML configs under configs/ and ~/.config/genesis/,
+// plus the active path if elsewhere. Skips *.rules.yaml.
+func ListConfigFiles(active string) ([]ConfigEntry, error) {
+	active = strings.TrimSpace(active)
+	seen := map[string]bool{}
+	var out []ConfigEntry
+
+	add := func(path string) {
+		path = filepath.Clean(path)
+		if path == "" || path == "." || seen[path] {
+			return
+		}
+		seen[path] = true
+		out = append(out, ConfigEntry{
+			Path:   path,
+			Name:   filepath.Base(path),
+			Active: active != "" && filepath.Clean(active) == path,
+		})
+	}
+
+	scanDir := func(dir string) error {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !isListedConfigFile(name) {
+				continue
+			}
+			add(filepath.Join(dir, name))
+		}
+		return nil
+	}
+
+	if err := scanDir(ConfigsDir); err != nil {
+		return nil, err
+	}
+	if ud := UserConfigDir(); ud != "" {
+		if err := scanDir(ud); err != nil {
+			return nil, err
+		}
+	}
+	if active != "" {
+		add(active)
+	}
+	return out, nil
+}
+
+// AssertAllowedConfigPath rejects path traversal outside configs/ or ~/.config/genesis/.
+func AssertAllowedConfigPath(path string) (string, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" || path == "." {
+		return "", fmt.Errorf("empty config path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	configsAbs := filepath.Join(cwd, ConfigsDir)
+	if isUnder(abs, configsAbs) {
+		return path, nil
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		userDir := filepath.Join(home, ".config", "genesis")
+		if isUnder(abs, userDir) {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("config path not allowed: %s (must be under %s/ or ~/.config/genesis/)", path, ConfigsDir)
+}
+
+func isUnder(abs, root string) bool {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// NewConfigPath builds configs/<name>.yaml (adds .yaml if missing).
+func NewConfigPath(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == ".." {
+		return "", fmt.Errorf("invalid config name")
+	}
+	low := strings.ToLower(name)
+	if !strings.HasSuffix(low, ".yaml") && !strings.HasSuffix(low, ".yml") {
+		name += ".yaml"
+	}
+	path := filepath.Join(ConfigsDir, name)
+	return AssertAllowedConfigPath(path)
 }

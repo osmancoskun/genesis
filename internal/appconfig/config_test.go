@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -88,5 +89,44 @@ func TestFindExisting(t *testing.T) {
 	t.Setenv(EnvConfig, path)
 	if got := FindExisting(); got != path {
 		t.Fatalf("got %q want %q", got, path)
+	}
+}
+
+func TestListAndAllowedPaths(t *testing.T) {
+	dir := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("configs", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("configs", "demo.yaml")
+	if err := SaveFile(path, Default()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ListConfigFiles(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) < 1 {
+		t.Fatalf("expected entries, got %#v", items)
+	}
+	if _, err := AssertAllowedConfigPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AssertAllowedConfigPath("../etc/passwd"); err == nil {
+		t.Fatal("expected reject")
+	}
+	p, err := NewConfigPath("fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != filepath.Join("configs", "fresh.yaml") {
+		t.Fatalf("got %s", p)
 	}
 }

@@ -4,7 +4,7 @@ Self-hosted Linux agent that steers DNS and connection traffic onto preferred in
 
 Docs: [architecture](docs/dns-redirector-plan.md) · [ctl manual](docs/ctl-manual.md) · [service](docs/service.md) · [resolved coexistence](docs/resolved-coexistence.md) · [conventions](docs/engineering-conventions.md)
 
-MVP defaults: **fail closed**, IPv4-first pins, DoH warn-only, listen `127.0.0.1:5553` (not mDNS 5353).
+MVP defaults: **fail closed**, IPv4-first pins, DoH warn-only, DNS UDP `127.0.0.1:5553`, Web UI TCP `http://127.0.0.1:8787` (localhost only).
 
 ---
 
@@ -69,6 +69,8 @@ go run ./cmd/ctl -config configs/local.yaml run
 # 4) Check
 dig @127.0.0.1 -p 5553 discord.com A
 resolvectl query discord.com
+# Web UI (same agent process, TCP — not the DNS UDP port):
+#   open http://127.0.0.1:8787
 ```
 
 Interactive menu: `go run ./cmd/ctl menu` (setup, run, view config, ifaces, default-path, service).
@@ -79,7 +81,16 @@ Without copying the example:
 go run ./cmd/ctl -config configs/discord.config.yaml run
 ```
 
-Env: `GENESIS_CONFIG`, `GENESIS_LISTEN`.
+Env: `GENESIS_CONFIG`, `GENESIS_LISTEN`, `GENESIS_UI` (Web UI bind; `off` disables).
+
+### Local Web UI
+
+When the agent runs, it also serves a simple localhost UI (TCP, default `127.0.0.1:8787`) for iface overview, a small traffic-path animation (apps → CONFIG/KERNEL iface), and default-path edits. DNS stays on UDP `:5553` — different protocol, separate listener.
+
+```bash
+go run ./cmd/agent -config configs/local.yaml
+# browser → http://127.0.0.1:8787
+```
 
 Stop foreground agent with **Ctrl-C**. Cleanup policy rules / Mode B: `./scripts/host-cleanup.sh`.
 
@@ -161,7 +172,8 @@ make demo-docker-split
 ```
 cmd/agent cmd/ctl cmd/verify
 internal/appconfig rules doctor dnsstub ifacedns netinfo pathpin
-configs/          # discord.config.yaml + examples; local.yaml gitignored
+configs/          # genesis agent configs (discord.config.yaml; local.yaml gitignored)
+examples/         # rules-only demos (docker, pin dry-run, example pack)
 deploy/systemd/   # genesis.service
 docs/
 scripts/          # Mode B, host-try, cleanup

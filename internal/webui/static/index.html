@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>genesis</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="top-main">
+      <div class="brand">genesis</div>
+      <p class="tag">Local path steering</p>
+    </div>
+    <div class="live" id="live-status" title="Agent health">
+      <span class="live-dot" id="live-dot"></span>
+      <div class="live-text">
+        <strong id="live-label">checking…</strong>
+        <span id="live-detail">—</span>
+      </div>
+      <button type="button" class="btn ghost live-refresh" id="btn-refresh" title="Reload UI data">↻</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button type="button" class="tab is-active" data-tab="path" role="tab">Path</button>
+    <button type="button" class="tab" data-tab="configs" role="tab">Configs</button>
+    <button type="button" class="tab" data-tab="interfaces" role="tab">Interfaces</button>
+    <button type="button" class="tab" data-tab="default" role="tab">Default path</button>
+    <button type="button" class="tab" data-tab="rules" role="tab">Rules</button>
+    <button type="button" class="tab" data-tab="settings" role="tab">Settings</button>
+  </nav>
+
+  <main>
+    <section class="tab-panel is-active" data-panel="path">
+      <div class="panel flow-panel">
+        <h1>Traffic path</h1>
+        <p class="hint">Default path iface on top; pin interfaces below. Domain / IP groups under all websites.</p>
+        <div class="viz" id="viz">
+          <div class="viz-col viz-matches" id="viz-matches"></div>
+          <div class="viz-col viz-right" id="viz-right">
+            <div class="viz-ifaces" id="viz-ifaces"></div>
+          </div>
+          <svg class="viz-wires" id="viz-wires" aria-hidden="true"></svg>
+        </div>
+        <div class="meta" id="flow-meta"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="configs">
+      <div class="panel">
+        <div class="panel-head">
+          <h1>Configs</h1>
+          <div class="btn-row">
+            <button type="button" class="btn ghost" id="btn-cfg-new">New</button>
+            <button type="button" class="btn ghost" id="btn-cfg-edit">Edit</button>
+            <button type="button" class="btn ghost" id="btn-cfg-save-disk">Save</button>
+            <button type="button" class="btn" id="btn-cfg-apply">Apply</button>
+            <button type="button" class="btn danger" id="btn-cfg-delete">Delete</button>
+          </div>
+        </div>
+        <p class="hint" id="cfg-active">Active: —</p>
+        <div class="cfg-list" id="cfg-list"></div>
+        <pre id="config-pre" class="code"></pre>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="interfaces">
+      <div class="panel">
+        <h1>Interfaces</h1>
+        <div class="table-wrap">
+          <table id="ifaces">
+            <thead>
+              <tr><th>Name</th><th>Up</th><th>KERNEL</th><th>CONFIG</th><th>IPv4</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="default">
+      <div class="panel">
+        <h1>Default path</h1>
+        <form id="dp-form" class="form">
+          <label>
+            Interface
+            <select id="dp-iface"></select>
+          </label>
+          <label>
+            Mode
+            <select id="dp-mode">
+              <option value="off">off</option>
+              <option value="dry-run">dry-run</option>
+              <option value="netlink">netlink</option>
+              <option value="auto">auto</option>
+            </select>
+          </label>
+          <button type="submit">Save</button>
+          <p class="hint" id="dp-msg"></p>
+        </form>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="rules">
+      <div class="panel">
+        <div class="panel-head">
+          <h1>Pin rules</h1>
+          <button type="button" class="btn" id="btn-add-rule">Add domain / IP</button>
+        </div>
+        <p class="hint">Probe each interface, then pick which one should answer for the match.</p>
+        <div id="rules-list" class="rules-list"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="settings">
+      <div class="panel">
+        <h1>Runtime</h1>
+        <div class="settings-grid" id="settings-runtime"></div>
+      </div>
+      <div class="panel">
+        <h1>Agent settings</h1>
+        <form id="settings-form" class="form form-wide">
+          <label>DNS listen (UDP)<input id="set-listen" type="text" /></label>
+          <label>UI listen (TCP)<input id="set-ui" type="text" /></label>
+          <label>Pins
+            <select id="set-pins">
+              <option value="auto">auto</option>
+              <option value="dry-run">dry-run</option>
+              <option value="netlink">netlink</option>
+              <option value="noop">noop</option>
+            </select>
+          </label>
+          <label>Default-path mode
+            <select id="set-dpmode">
+              <option value="off">off</option>
+              <option value="auto">auto</option>
+              <option value="dry-run">dry-run</option>
+              <option value="netlink">netlink</option>
+            </select>
+          </label>
+          <label>DNS upstream<input id="set-upstream" type="text" /></label>
+          <button type="submit">Save settings</button>
+          <p class="hint" id="set-msg"></p>
+        </form>
+      </div>
+      <div class="panel">
+        <h1>Actions &amp; commands</h1>
+        <p class="hint">Copy-paste into a terminal. Service up/down needs the systemd unit (or use ctl).</p>
+        <div class="cmd-list" id="cmd-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h1>Doctor</h1>
+          <button type="button" class="btn ghost" id="btn-doctor">Refresh doctor</button>
+        </div>
+        <div id="doctor-list" class="doctor-list"></div>
+      </div>
+      <div class="panel">
+        <h1>Presets</h1>
+        <div class="preset-list" id="preset-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-root" id="modal-root" hidden>
+    <div class="modal-backdrop" data-modal-dismiss></div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title"></h2>
+      <p class="modal-body" id="modal-body"></p>
+      <div id="modal-extra"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="modal-cancel">Cancel</button>
+        <button type="button" class="btn" id="modal-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
