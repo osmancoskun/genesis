@@ -41,11 +41,41 @@ Live pins need **`CAP_NET_ADMIN`** (and often **`CAP_NET_RAW`** for bind-to-devi
 ```bash
 git clone git@github.com:osmancoskun/genesis.git
 cd genesis
-go build -o genesis-agent ./cmd/agent
-go build -o genesis-ctl ./cmd/ctl
+make check-deps
+make build                    # → bin/genesis-agent, bin/genesis-ctl
 # optional checks
 make verify && make test
 ```
+
+Or: `go build -o bin/genesis-agent ./cmd/agent` and `go build -o bin/genesis-ctl ./cmd/ctl`.
+
+---
+
+## Install (system, Makefile)
+
+Developer default installs under `/usr/local` and stages the same layout RPM uses (`DESTDIR` + `PREFIX`).
+
+```bash
+make check-deps
+make build
+sudo make install ENABLE=1    # binaries, unit, blank /etc/genesis/config.yaml if missing
+# open http://127.0.0.1:8787 — set default path / rules (or Import Discord example)
+# optional Mode B (resolved Domains → :5553) — not part of make install:
+./scripts/host-resolved-modeb.sh install 5553
+```
+
+| Target | Meaning |
+|--------|---------|
+| `make check-deps` | Require `go` (≥ `go.mod`), `install` |
+| `make build` | `CGO_ENABLED=0` binaries in `bin/` |
+| `sudo make install` | Install; does **not** start the unit |
+| `sudo make install ENABLE=1` | Install + `systemctl enable --now` |
+| `sudo make enable` | Enable/start after install |
+| `sudo make uninstall` | Remove binaries/unit/docs; keep `/etc/genesis` |
+| `sudo make uninstall PURGE=1` | Also remove `/etc/genesis` |
+| `make rpm` | Fedora RPM via [`packaging/fedora/`](packaging/fedora/) |
+
+Unit template: [`deploy/systemd/genesis.service.in`](deploy/systemd/genesis.service.in) (`@PREFIX@` → `/usr/local` or `/usr`).
 
 ---
 
@@ -100,40 +130,28 @@ Stop foreground agent with **Ctrl-C**. Cleanup policy rules / Mode B: `./scripts
 
 Like Tailscale: daemon in the background, `ctl` for up / down / apply.
 
+Preferred:
+
 ```bash
-# Install config + binary + unit
-sudo install -d /etc/genesis
-sudo cp configs/discord.config.yaml /etc/genesis/config.yaml
-# edit ifaces in /etc/genesis/config.yaml
-
-go build -o /tmp/genesis-agent ./cmd/agent
-sudo install -m 755 /tmp/genesis-agent /usr/local/bin/genesis-agent
-sudo cp deploy/systemd/genesis.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now genesis.service
-
-# Optional Mode B for Discord domains → :5553
-./scripts/host-resolved-modeb.sh install 5553
+sudo make install ENABLE=1
+# Web UI: http://127.0.0.1:8787  (first-boot blank config; no hard-coded ifaces)
+./scripts/host-resolved-modeb.sh install 5553   # optional
+genesis-ctl apply                               # after YAML edits outside the UI
 ```
 
 Operator commands:
 
 | Command | Meaning |
 |---------|---------|
-| `go run ./cmd/ctl up` | `systemctl start genesis` |
-| `go run ./cmd/ctl down` | stop |
-| `go run ./cmd/ctl restart` | restart |
-| `go run ./cmd/ctl apply` | hot-reload config (**SIGHUP**) after editing YAML |
-| `go run ./cmd/ctl service-status` | status |
+| `genesis-ctl up` | `systemctl start genesis` |
+| `genesis-ctl down` | stop |
+| `genesis-ctl restart` | restart |
+| `genesis-ctl apply` | hot-reload config (**SIGHUP**) after editing YAML |
+| `genesis-ctl service-status` | status |
 
-After editing `/etc/genesis/config.yaml`:
+(`go run ./cmd/ctl …` works the same from a git checkout.)
 
-```bash
-sudoedit /etc/genesis/config.yaml
-go run ./cmd/ctl apply
-```
-
-Details: [`docs/service.md`](docs/service.md). Unit: [`deploy/systemd/genesis.service`](deploy/systemd/genesis.service).
+Details: [`docs/service.md`](docs/service.md). Fedora RPM: [`packaging/fedora/README.md`](packaging/fedora/README.md).
 
 ---
 
@@ -172,9 +190,10 @@ make demo-docker-split
 ```
 cmd/agent cmd/ctl cmd/verify
 internal/appconfig rules doctor dnsstub ifacedns netinfo pathpin
-configs/          # genesis agent configs (discord.config.yaml; local.yaml gitignored)
+configs/          # default.config.yaml (first-boot), discord example; local.yaml gitignored
 examples/         # rules-only demos (docker, pin dry-run, example pack)
-deploy/systemd/   # genesis.service
+deploy/systemd/   # genesis.service.in (+ generated genesis.service)
+packaging/fedora/ # RPM spec (same make install stage)
 docs/
-scripts/          # Mode B, host-try, cleanup
+scripts/          # check-deps, Mode B, host-try, cleanup
 ```

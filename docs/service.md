@@ -24,25 +24,34 @@ Existing destination pins keep their TTL until expiry; new answers follow the re
 
 ## Install (system)
 
+Preferred — Makefile stage (default `PREFIX=/usr/local`):
+
 ```bash
-sudo install -d /etc/genesis
-sudo cp configs/discord.config.yaml /etc/genesis/config.yaml
-# edit CloudflareWARP / eno1
+make check-deps
+make build
+sudo make install ENABLE=1
+# First-boot config is blank — configure via http://127.0.0.1:8787
+# (Default path / Rules, or Import Discord example then fix iface names)
 
-go build -o /tmp/genesis-agent ./cmd/agent
-sudo install -m 755 /tmp/genesis-agent /usr/local/bin/genesis-agent
-sudo cp deploy/systemd/genesis.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now genesis.service
-
+# Optional: send Discord* DNS to the agent (not done by make install)
 ./scripts/host-resolved-modeb.sh install 5553
 
-go run ./cmd/ctl apply          # after editing /etc/genesis/config.yaml
-go run ./cmd/ctl service-status
-go run ./cmd/ctl down
+genesis-ctl apply               # after editing /etc/genesis/config.yaml outside the UI
+genesis-ctl service-status
+genesis-ctl down
 ```
 
-Unit file: [`deploy/systemd/genesis.service`](../deploy/systemd/genesis.service).
+| Make target | Effect |
+|-------------|--------|
+| `sudo make install` | Binaries, unit, docs, share examples; blank `/etc/genesis/config.yaml` only if missing |
+| `sudo make install ENABLE=1` | Same + `systemctl enable --now genesis.service` |
+| `sudo make enable` | Enable/start only |
+| `sudo make uninstall` | Stop/disable; remove binaries/unit/docs; keep `/etc/genesis` |
+| `sudo make uninstall PURGE=1` | Also remove `/etc/genesis` |
+
+RPM uses the same stage with `PREFIX=/usr` — see [`packaging/fedora/README.md`](../packaging/fedora/README.md).
+
+Unit template: [`deploy/systemd/genesis.service.in`](../deploy/systemd/genesis.service.in) (`@PREFIX@` substituted at install).
 
 ## Design notes
 

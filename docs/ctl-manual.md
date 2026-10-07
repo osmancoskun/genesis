@@ -68,7 +68,7 @@ Applied when a rule omits a field.
 
 | Field | Meaning |
 |-------|---------|
-| `interface` | Real iface name for catch-all (e.g. `eno1`). Empty = disabled. **Not** `auto`. |
+| `interface` | Catch-all iface: real name (e.g. `eno1`), `auto` (kernel default-route iface at apply time), or empty = disabled. |
 | `on_iface_down` | Same semantics as rules; default inherits `defaults`. |
 
 Does **not** edit the main-table default route. KERNEL column in `ctl` lists = live system routing; CONFIG column = this YAML.
