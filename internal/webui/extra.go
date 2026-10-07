@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"dnsredirector/internal/appconfig"
@@ -147,9 +148,10 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Kind  string `json:"kind"` // domain | ip
-		Value string `json:"value"`
-		Iface string `json:"iface"` // optional; empty = all up ifaces
+		Kind     string `json:"kind"`     // domain | ip
+		Value    string `json:"value"`
+		Iface    string `json:"iface"`    // optional; empty = all up ifaces
+		Resolver string `json:"resolver"` // optional explicit override
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
@@ -161,10 +163,11 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "value required", http.StatusBadRequest)
 		return
 	}
-	resolver := appconfig.DefaultDNS
+	fallback := appconfig.DefaultDNS
 	if f := s.hooksSnapshot(); f != nil && f.Agent.DNSUpstream != "" {
-		resolver = f.Agent.DNSUpstream
+		fallback = f.Agent.DNSUpstream
 	}
+	explicit := strings.TrimSpace(body.Resolver)
 
 	ifaces, err := netinfo.ListIfaces()
 	if err != nil {
@@ -187,24 +190,36 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	// Parallel per-iface probes; each attempt is capped at PerAttemptTimeout.
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
 	type row struct {
-		Iface   string   `json:"iface"`
-		OK      bool     `json:"ok"`
-		Detail  string   `json:"detail"`
-		Answers []string `json:"answers,omitempty"`
+		Iface    string   `json:"iface"`
+		OK       bool     `json:"ok"`
+		Detail   string   `json:"detail"`
+		Answers  []string `json:"answers,omitempty"`
+		Resolver string   `json:"resolver,omitempty"`
+		Source   string   `json:"source,omitempty"` // link | fallback | explicit
 	}
-	out := make([]row, 0, len(names))
+	out := make([]row, len(names))
 
 	switch body.Kind {
 	case "domain", "domains", "":
 		probeName := strings.TrimPrefix(body.Value, "*.")
-		for _, n := range names {
-			res := netinfo.ProbeDomain(ctx, n, resolver, probeName)
-			out = append(out, row{Iface: res.Iface, OK: res.OK, Detail: res.Detail, Answers: res.Answers})
+		var wg sync.WaitGroup
+		for i, n := range names {
+			wg.Add(1)
+			go func(i int, n string) {
+				defer wg.Done()
+				res := netinfo.ProbeDomainSmart(ctx, n, explicit, fallback, probeName)
+				out[i] = row{
+					Iface: res.Iface, OK: res.OK, Detail: res.Detail, Answers: res.Answers,
+					Resolver: res.Resolver, Source: res.Source,
+				}
+			}(i, n)
 		}
+		wg.Wait()
 	case "ip", "ips":
 		ip := net.ParseIP(body.Value)
 		var probeIP net.IP
@@ -217,10 +232,16 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "need IPv4 or CIDR for ip probe", http.StatusBadRequest)
 			return
 		}
-		for _, n := range names {
-			res := netinfo.ProbeIP(ctx, n, probeIP)
-			out = append(out, row{Iface: res.Iface, OK: res.OK, Detail: res.Detail})
+		var wg sync.WaitGroup
+		for i, n := range names {
+			wg.Add(1)
+			go func(i int, n string) {
+				defer wg.Done()
+				res := netinfo.ProbeIP(ctx, n, probeIP)
+				out[i] = row{Iface: res.Iface, OK: res.OK, Detail: res.Detail}
+			}(i, n)
 		}
+		wg.Wait()
 	default:
 		http.Error(w, "kind must be domain|ip", http.StatusBadRequest)
 		return
@@ -228,7 +249,8 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"kind":     body.Kind,
 		"value":    body.Value,
-		"resolver": resolver,
+		"fallback": fallback,
+		"explicit": explicit,
 		"results":  out,
 	})
 }
@@ -280,7 +302,7 @@ func actionCommands(configPath string) map[string]string {
 		"service_down":   "go run ./cmd/ctl down",
 		"service_apply":  "go run ./cmd/ctl apply",
 		"service_status": "go run ./cmd/ctl service-status",
-		"install_unit":   "sudo cp deploy/systemd/genesis.service /etc/systemd/system/ && sudo systemctl daemon-reload",
+		"install_unit":   "sudo make install ENABLE=1",
 	}
 }
 

@@ -29,8 +29,14 @@ func UDPExchange(ctx context.Context, iface, server string, payload []byte) ([]b
 	if _, _, err := net.SplitHostPort(server); err != nil {
 		server = net.JoinHostPort(server, "53")
 	}
+	dialTimeout := 5 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < dialTimeout {
+			dialTimeout = d
+		}
+	}
 	dialer := &net.Dialer{
-		Timeout: 5 * time.Second,
+		Timeout: dialTimeout,
 	}
 	bound := iface != "" && iface != "auto"
 	if bound {

@@ -89,17 +89,23 @@ func DefaultRouteIface() string {
 
 // ProbeResult is one iface attempt for a name or IP.
 type ProbeResult struct {
-	Iface   string
-	OK      bool
-	Detail  string
-	Answers []string
+	Iface    string
+	OK       bool
+	Detail   string
+	Answers  []string
+	Resolver string // upstream used for this attempt
+	Source   string // link | fallback | explicit
 }
+
+// PerAttemptTimeout caps a single UDP DNS probe (keeps multi-iface UI snappy).
+const PerAttemptTimeout = 2 * time.Second
 
 // ProbeDomain asks resolver via SO_BINDTODEVICE on iface (or unbound if iface is "auto"/"").
 func ProbeDomain(ctx context.Context, iface, resolver, name string) ProbeResult {
-	res := ProbeResult{Iface: iface}
+	res := ProbeResult{Iface: iface, Resolver: resolver}
 	if resolver == "" {
 		resolver = "1.1.1.1"
+		res.Resolver = resolver
 	}
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
@@ -111,7 +117,9 @@ func ProbeDomain(ctx context.Context, iface, resolver, name string) ProbeResult 
 	if iface == "" {
 		iface = "auto"
 	}
-	respRaw, err := ifacedns.UDPExchange(ctx, iface, resolver, raw)
+	pctx, cancel := context.WithTimeout(ctx, PerAttemptTimeout)
+	defer cancel()
+	respRaw, err := ifacedns.UDPExchange(pctx, iface, resolver, raw)
 	if err != nil {
 		res.Detail = err.Error()
 		return res
@@ -137,6 +145,49 @@ func ProbeDomain(ctx context.Context, iface, resolver, name string) ProbeResult 
 	res.OK = true
 	res.Detail = strings.Join(res.Answers, ", ")
 	return res
+}
+
+// ProbeDomainSmart picks resolvers per iface: explicit override, else link DNS
+// from systemd-resolved, else fallback (typically 1.1.1.1 / agent dns_upstream).
+// Does not fall through from link NXDOMAIN to public DNS (avoids false negatives
+// for split-horizon / corp names).
+func ProbeDomainSmart(ctx context.Context, iface, explicit, fallback, name string) ProbeResult {
+	if fallback == "" {
+		fallback = "1.1.1.1"
+	}
+	var resolvers []string
+	source := "fallback"
+	switch {
+	case strings.TrimSpace(explicit) != "":
+		resolvers = []string{strings.TrimSpace(explicit)}
+		source = "explicit"
+	default:
+		if link := LinkDNSServers(iface); len(link) > 0 {
+			resolvers = link
+			source = "link"
+		} else {
+			resolvers = []string{fallback}
+			source = "fallback"
+		}
+	}
+	var last ProbeResult
+	for _, r := range resolvers {
+		last = ProbeDomain(ctx, iface, r, name)
+		last.Source = source
+		if last.OK {
+			return last
+		}
+		// Definitive DNS answer from this resolver — stop (don't pollute with public NXDOMAIN).
+		if last.Detail == "NXDOMAIN" || last.Detail == "NOERROR but no A" {
+			return last
+		}
+	}
+	if last.Iface == "" {
+		last.Iface = iface
+		last.Detail = "no resolver tried"
+		last.Source = source
+	}
+	return last
 }
 
 // ProbeIP checks UDP reachability to dst:53 bound to iface (SO_BINDTODEVICE when named).
