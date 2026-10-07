@@ -101,9 +101,8 @@ func (c *Config) Validate() error {
 	if c.DefaultPath.OnIfaceDown != FailClosed && c.DefaultPath.OnIfaceDown != FailOpen {
 		return fmt.Errorf("default_path.on_iface_down: want fail_closed or fail_open, got %q", c.DefaultPath.OnIfaceDown)
 	}
-	if dp := strings.TrimSpace(c.DefaultPath.Interface); dp == "auto" {
-		return fmt.Errorf("default_path.interface: want a real iface name or empty (disabled), not %q", c.DefaultPath.Interface)
-	}
+	// default_path.interface may be empty (off), a real iface name, or "auto"
+	// (resolved to the kernel default-route iface at apply time).
 	c.DefaultPath.Interface = strings.TrimSpace(c.DefaultPath.Interface)
 	for i := range c.Rules {
 		r := &c.Rules[i]

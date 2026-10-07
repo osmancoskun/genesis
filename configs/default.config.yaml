@@ -1,0 +1,29 @@
+# First-boot / package default — safe blank slate.
+# Agent starts DNS + Web UI with no hard-coded ifaces or rules.
+# Configure via http://127.0.0.1:8787 (Default path, Rules) or import
+# /usr/share/genesis/discord.config.yaml from the UI.
+#
+# Discord example (iface names must match your machine):
+#   configs/discord.config.yaml  (repo) / share/genesis/discord.config.yaml (install)
+
+version: 1
+
+agent:
+  listen: 127.0.0.1:5553
+  # empty ui_listen → default 127.0.0.1:8787
+  pins: auto
+  default_path_mode: off
+  dns_upstream: 1.1.1.1
+
+defaults:
+  dns: 1.1.1.1
+  interface: auto
+  pin_connections: true
+  on_iface_down: fail_closed
+
+# Empty = catch-all disabled. Set via Web UI (or interface: auto + default_path_mode: netlink).
+default_path:
+  interface: ""
+  on_iface_down: fail_closed
+
+rules: []

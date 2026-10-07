@@ -222,6 +222,17 @@ const ConfigsDir = "configs"
 // UserConfigDirName is under $HOME/.config.
 const UserConfigDirName = "genesis"
 
+// SystemConfigDir is the packaged live config directory.
+const SystemConfigDir = "/etc/genesis"
+
+// ShareConfigDirs are read-only example packs shipped with the package / make install.
+func ShareConfigDirs() []string {
+	return []string{
+		"/usr/share/genesis",
+		"/usr/local/share/genesis",
+	}
+}
+
 // isListedConfigFile reports whether name belongs in the Web UI / ctl config list.
 // Excludes *.rules.yaml (examples / rules-only packs live under examples/).
 func isListedConfigFile(name string) bool {
@@ -244,8 +255,8 @@ func UserConfigDir() string {
 	return filepath.Join(home, ".config", UserConfigDirName)
 }
 
-// ListConfigFiles returns genesis YAML configs under configs/ and ~/.config/genesis/,
-// plus the active path if elsewhere. Skips *.rules.yaml.
+// ListConfigFiles returns genesis YAML configs under configs/, ~/.config/genesis/,
+// /etc/genesis, plus the active path if elsewhere. Skips *.rules.yaml.
 func ListConfigFiles(active string) ([]ConfigEntry, error) {
 	active = strings.TrimSpace(active)
 	seen := map[string]bool{}
@@ -293,13 +304,68 @@ func ListConfigFiles(active string) ([]ConfigEntry, error) {
 			return nil, err
 		}
 	}
+	if err := scanDir(SystemConfigDir); err != nil {
+		return nil, err
+	}
 	if active != "" {
 		add(active)
 	}
 	return out, nil
 }
 
-// AssertAllowedConfigPath rejects path traversal outside configs/ or ~/.config/genesis/.
+// ListShareExamples returns read-only example configs under share dirs.
+func ListShareExamples() ([]ConfigEntry, error) {
+	seen := map[string]bool{}
+	var out []ConfigEntry
+	for _, dir := range ShareConfigDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() || !isListedConfigFile(e.Name()) {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, ConfigEntry{Path: path, Name: e.Name()})
+		}
+	}
+	return out, nil
+}
+
+// FindShareExample returns the first share path whose base name matches name
+// (with or without .yaml).
+func FindShareExample(name string) (string, error) {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "" {
+		return "", fmt.Errorf("empty example name")
+	}
+	low := strings.ToLower(name)
+	if !strings.HasSuffix(low, ".yaml") && !strings.HasSuffix(low, ".yml") {
+		name += ".yaml"
+	}
+	for _, dir := range ShareConfigDirs() {
+		p := filepath.Join(dir, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, nil
+		}
+	}
+	// Repo checkout: configs/<name>
+	p := filepath.Join(ConfigsDir, name)
+	if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		return p, nil
+	}
+	return "", fmt.Errorf("share example %q not found", name)
+}
+
+// AssertAllowedConfigPath rejects path traversal outside writable config roots.
 func AssertAllowedConfigPath(path string) (string, error) {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if path == "" || path == "." {
@@ -323,7 +389,10 @@ func AssertAllowedConfigPath(path string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("config path not allowed: %s (must be under %s/ or ~/.config/genesis/)", path, ConfigsDir)
+	if sysAbs, err := filepath.Abs(SystemConfigDir); err == nil && isUnder(abs, sysAbs) {
+		return path, nil
+	}
+	return "", fmt.Errorf("config path not allowed: %s (must be under %s/, ~/.config/genesis/, or %s/)", path, ConfigsDir, SystemConfigDir)
 }
 
 func isUnder(abs, root string) bool {

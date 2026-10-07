@@ -18,6 +18,7 @@ import (
 	"dnsredirector/internal/appconfig"
 	"dnsredirector/internal/dnsstub"
 	"dnsredirector/internal/modeb"
+	"dnsredirector/internal/netinfo"
 	"dnsredirector/internal/pathpin"
 	"dnsredirector/internal/rules"
 	"dnsredirector/internal/webui"
@@ -71,26 +72,29 @@ func main() {
 		var dpName string
 		dpApplier, dpName, err = selectDefaultPath(dpMode, pins)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "default-path: %v\n", err)
-			os.Exit(1)
-		}
-		dpLabel = dpName
-		dpIface = rulesCfg.DefaultPath.Interface
-		if dpApplier != nil {
-			if err := dpApplier.ApplyDefaultPath(dpIface); err != nil {
-				log.Printf("default-path apply %s via %s: %v", dpIface, dpName, err)
-				if rulesCfg.DefaultPath.OnIfaceDown == rules.FailClosed {
-					fmt.Fprintf(os.Stderr, "default-path fail_closed: %v\n", err)
-					os.Exit(1)
+			// Keep the agent (and Web UI) up; operator can fix via UI / apply.
+			log.Printf("default-path: applier unavailable (%v) — continuing degraded", err)
+			dpLabel = "degraded"
+		} else {
+			dpLabel = dpName
+			dpIface = resolveDefaultPathIface(rulesCfg.DefaultPath.Interface)
+			if dpIface == "" {
+				log.Printf("default-path: interface %q unresolved (no kernel default route) — continuing", rulesCfg.DefaultPath.Interface)
+			} else if dpApplier != nil {
+				if err := dpApplier.ApplyDefaultPath(dpIface); err != nil {
+					log.Printf("default-path apply %s via %s: %v — continuing (fix via Web UI)", dpIface, dpName, err)
+					dpIface = ""
+				} else {
+					log.Printf("default-path applied iface=%s mode=%s", dpIface, dpName)
 				}
-			} else {
-				log.Printf("default-path applied iface=%s mode=%s", dpIface, dpName)
+				defer func() {
+					if dpApplier != nil && dpIface != "" {
+						if err := dpApplier.RemoveDefaultPath(dpIface); err != nil {
+							log.Printf("default-path remove: %v", err)
+						}
+					}
+				}()
 			}
-			defer func() {
-				if err := dpApplier.RemoveDefaultPath(dpIface); err != nil {
-					log.Printf("default-path remove: %v", err)
-				}
-			}()
 		}
 	} else if dpMode != "auto" && dpMode != "off" && dpMode != "" {
 		log.Printf("default-path: rules have no default_path.interface; ignoring mode=%s", dpMode)
@@ -264,7 +268,8 @@ func (s *agentState) applyLive(dns *dnsstub.Server, dpApplier *pathpin.DefaultPa
 	s.set(newFile, path, pins, newFile.Agent.DefaultPathMode)
 	dns.SetRules(newRules)
 	if err := syncDefaultPath(newFile, pins, dpApplier, dpIface); err != nil {
-		return err
+		// Keep DNS rules + Web UI usable; operator fixes ifaces without a dead agent.
+		log.Printf("default-path apply degraded: %v", err)
 	}
 	// Browser traffic only hits the stub if systemd-resolved Domains= includes the rule.
 	if err := modeb.SyncFromConfig(newFile); err != nil {
@@ -293,7 +298,10 @@ func (s *agentState) selectConfig(path string, dns *dnsstub.Server, dpApplier *p
 	s.set(newFile, path, pins, newFile.Agent.DefaultPathMode)
 	dns.SetRules(newFile.RulesConfig())
 	log.Printf("selected config %s", path)
-	return syncDefaultPath(newFile, pins, dpApplier, dpIface)
+	if err := syncDefaultPath(newFile, pins, dpApplier, dpIface); err != nil {
+		log.Printf("default-path apply degraded: %v", err)
+	}
+	return nil
 }
 
 func (s *agentState) saveYAML(raw string, dns *dnsstub.Server, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
@@ -443,9 +451,20 @@ func (s *agentState) saveSettings(listen, uiListen, pinsMode, dpModeVal, dnsUpst
 	return s.applyLive(dns, dpApplier, dpIface)
 }
 
+func resolveDefaultPathIface(iface string) string {
+	iface = strings.TrimSpace(iface)
+	if iface == "" {
+		return ""
+	}
+	if iface == "auto" {
+		return netinfo.DefaultRouteIface()
+	}
+	return iface
+}
+
 func syncDefaultPath(f *appconfig.File, pins string, dpApplier *pathpin.DefaultPathController, dpIface *string) error {
 	mode := f.Agent.DefaultPathMode
-	iface := f.DefaultPath.Interface
+	iface := resolveDefaultPathIface(f.DefaultPath.Interface)
 	live := mode == "netlink" || (mode == "auto" && pins == "netlink")
 	c := *dpApplier
 	if live && c == nil {
@@ -463,6 +482,9 @@ func syncDefaultPath(f *appconfig.File, pins string, dpApplier *pathpin.DefaultP
 		if *dpIface != "" {
 			_ = c.RemoveDefaultPath(*dpIface)
 			*dpIface = ""
+		}
+		if live && strings.TrimSpace(f.DefaultPath.Interface) != "" && iface == "" {
+			return fmt.Errorf("default_path.interface %q could not be resolved", f.DefaultPath.Interface)
 		}
 		return nil
 	}

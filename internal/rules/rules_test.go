@@ -90,8 +90,8 @@ rules:
 	}
 }
 
-func TestDefaultPathRejectsAuto(t *testing.T) {
-	_, err := Parse([]byte(`
+func TestDefaultPathAllowsAuto(t *testing.T) {
+	cfg, err := Parse([]byte(`
 version: 1
 default_path:
   interface: auto
@@ -100,7 +100,10 @@ rules:
     match:
       domains: ["x.test"]
 `))
-	if err == nil {
-		t.Fatal("expected error for default_path.interface=auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DefaultPathEnabled() || cfg.DefaultPath.Interface != "auto" {
+		t.Fatalf("default_path: %+v", cfg.DefaultPath)
 	}
 }

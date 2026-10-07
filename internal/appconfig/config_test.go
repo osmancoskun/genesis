@@ -130,3 +130,19 @@ func TestListAndAllowedPaths(t *testing.T) {
 		t.Fatalf("got %s", p)
 	}
 }
+
+func TestLoadShippedDefaultConfig(t *testing.T) {
+	f, err := LoadFile("../../configs/default.config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Agent.DefaultPathMode != "off" {
+		t.Fatalf("default_path_mode: %q", f.Agent.DefaultPathMode)
+	}
+	if len(f.Rules) != 0 {
+		t.Fatalf("rules: %d", len(f.Rules))
+	}
+	if f.Agent.Pins != "auto" {
+		t.Fatalf("pins: %q", f.Agent.Pins)
+	}
+}
