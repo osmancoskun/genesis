@@ -42,7 +42,7 @@ func serviceUp() error {
 	fmt.Println("No systemd unit installed — see docs/service.md")
 	fmt.Println("Falling back to foreground tip:")
 	fmt.Println("  go run ./cmd/ctl run")
-	fmt.Println("Install: sudo cp deploy/systemd/genesis.service /etc/systemd/system/ && sudo systemctl daemon-reload")
+	fmt.Println("Install: sudo make install ENABLE=1")
 	return fmt.Errorf("systemd unit %s not found", systemdUnit)
 }
 

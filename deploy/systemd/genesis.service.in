@@ -1,6 +1,6 @@
 # genesis agent — system service (Tailscale-like background daemon)
 #
-# Generated from genesis.service.in (PREFIX=/usr/local).
+# Generated from genesis.service.in (PREFIX=@PREFIX@).
 # Preferred install: make check-deps && make build && sudo make install ENABLE=1
 #
 # Operator UX:
@@ -11,14 +11,14 @@
 
 [Unit]
 Description=genesis DNS stub and policy path pins
-Documentation=file:///usr/local/share/doc/genesis/service.md
+Documentation=file://@PREFIX@/share/doc/genesis/service.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 Environment=GENESIS_CONFIG=/etc/genesis/config.yaml
-ExecStart=/usr/local/bin/genesis-agent -config /etc/genesis/config.yaml -pidfile /run/genesis/agent.pid
+ExecStart=@PREFIX@/bin/genesis-agent -config /etc/genesis/config.yaml -pidfile /run/genesis/agent.pid
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
