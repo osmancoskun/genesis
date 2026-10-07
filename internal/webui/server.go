@@ -65,6 +65,7 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("/api/configs/save", s.handleConfigsSave)
 	mux.HandleFunc("/api/configs/new", s.handleConfigsNew)
 	mux.HandleFunc("/api/configs/delete", s.handleConfigsDelete)
+	mux.HandleFunc("/api/configs/import", s.handleConfigsImport)
 	mux.HandleFunc("/api/default-path", s.handleDefaultPath)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/doctor", s.handleDoctor)
@@ -121,11 +122,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cfgIface := ""
 	mode := ""
 	pins := ""
+	ruleCount := 0
 	if f != nil {
 		cfgIface = f.DefaultPath.Interface
 		mode = f.Agent.DefaultPathMode
 		pins = f.Agent.Pins
+		ruleCount = len(f.Rules)
 	}
+	setup := buildSetupStatus(f, kernel)
 	writeJSON(w, map[string]any{
 		"config_path":       s.activePath(),
 		"dns_listen":        s.Hooks.DNSListen,
@@ -134,7 +138,60 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"default_path_mode": mode,
 		"kernel_iface":      kernel,
 		"config_iface":      cfgIface,
+		"rule_count":        ruleCount,
+		"setup":             setup,
 	})
+}
+
+func buildSetupStatus(f *appconfig.File, kernel string) map[string]any {
+	reasons := []string{}
+	missing := []string{}
+	incomplete := false
+	if f == nil {
+		return map[string]any{
+			"incomplete":     true,
+			"reasons":        []string{"no_config"},
+			"missing_ifaces": missing,
+			"hint":           "No config loaded.",
+		}
+	}
+	mode := strings.TrimSpace(f.Agent.DefaultPathMode)
+	dp := strings.TrimSpace(f.DefaultPath.Interface)
+	if len(f.Rules) == 0 && (mode == "" || mode == "off" || dp == "") {
+		incomplete = true
+		reasons = append(reasons, "blank_config")
+	}
+	checkIface := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "auto" {
+			return
+		}
+		if _, err := net.InterfaceByName(name); err != nil {
+			missing = append(missing, name)
+		}
+	}
+	checkIface(dp)
+	for _, r := range f.Rules {
+		checkIface(r.Interface)
+	}
+	if len(missing) > 0 {
+		incomplete = true
+		reasons = append(reasons, "missing_ifaces")
+	}
+	hint := ""
+	switch {
+	case len(missing) > 0:
+		hint = "Configured interface(s) not found on this host — pick real ifaces in Default path / Rules, or import a blank config."
+	case incomplete:
+		hint = "First-boot: set a default path iface and/or add rules in the Web UI. Optional: import the Discord example and edit iface names."
+	}
+	_ = kernel
+	return map[string]any{
+		"incomplete":     incomplete,
+		"reasons":        reasons,
+		"missing_ifaces": missing,
+		"hint":           hint,
+	}
 }
 
 func (s *Server) handleIfaces(w http.ResponseWriter, r *http.Request) {
@@ -240,9 +297,52 @@ func (s *Server) handleConfigs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	examples, err := appconfig.ListShareExamples()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, map[string]any{
-		"active": s.activePath(),
-		"items":  items,
+		"active":   s.activePath(),
+		"items":    items,
+		"examples": examples,
+	})
+}
+
+func (s *Server) handleConfigsImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if s.Hooks.SaveYAML == nil {
+		http.Error(w, "save not wired", http.StatusServiceUnavailable)
+		return
+	}
+	src, err := appconfig.FindShareExample(body.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.Hooks.SaveYAML(string(data)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{
+		"ok":     "true",
+		"path":   s.activePath(),
+		"source": src,
 	})
 }
 

@@ -22,6 +22,19 @@
     </div>
   </header>
 
+  <aside class="setup-banner" id="setup-banner" hidden>
+    <div class="setup-banner-body">
+      <strong id="setup-title">Setup needed</strong>
+      <p id="setup-hint" class="setup-hint"></p>
+      <p id="setup-missing" class="setup-missing" hidden></p>
+    </div>
+    <div class="setup-banner-actions">
+      <button type="button" class="btn ghost" id="btn-setup-default">Default path</button>
+      <button type="button" class="btn ghost" id="btn-setup-rules">Add rules</button>
+      <button type="button" class="btn" id="btn-setup-import-discord">Import Discord example</button>
+    </div>
+  </aside>
+
   <nav class="tabs" id="tabs" role="tablist">
     <button type="button" class="tab is-active" data-tab="path" role="tab">Path</button>
     <button type="button" class="tab" data-tab="configs" role="tab">Configs</button>

@@ -697,8 +697,9 @@ async function addRuleWizard() {
   modal.root.hidden = false;
 
   const pickPromise = new Promise((resolve) => { modal.resolve = resolve; });
+  const pickDNS = { current: "" };
 
-  // Animate probes sequentially
+  // Animate probes sequentially (server uses per-iface link DNS).
   for (const iface of up) {
     const ui = rows.get(iface.name);
     ui.row.classList.add("is-testing");
@@ -710,36 +711,33 @@ async function addRuleWizard() {
       const res = await jpost("/api/probe", { kind: kindVal, value: valueVal, iface: iface.name });
       const hit = (res.results && res.results[0]) || { ok: false, detail: "no result" };
       ui.row.classList.remove("is-testing");
+      const via = hit.resolver
+        ? " via " + hit.resolver + (hit.source ? " (" + hit.source + ")" : "")
+        : "";
+      const selectRow = () => {
+        rows.forEach((v) => v.row.classList.remove("is-picked"));
+        ui.row.classList.add("is-picked");
+        pickInfo.current = iface.name;
+        pickDNS.current = hit.resolver || "";
+        modal.ok.disabled = false;
+      };
       if (hit.ok) {
         ui.row.classList.add("is-ok");
         ui.st.className = "probe-status ok";
         ui.st.textContent = "ok";
-        ui.detail.textContent = hit.detail || "ok";
-        ui.row.addEventListener("click", () => {
-          rows.forEach((v) => v.row.classList.remove("is-picked"));
-          ui.row.classList.add("is-picked");
-          pickInfo.current = iface.name;
-          modal.ok.disabled = false;
-        });
+        ui.detail.textContent = (hit.detail || "ok") + via;
+        ui.row.addEventListener("click", selectRow);
         if (!pickInfo.current) {
-          // auto-highlight first OK but still require click or allow Add with first OK
-          ui.row.classList.add("is-picked");
-          pickInfo.current = iface.name;
-          modal.ok.disabled = false;
+          selectRow();
         }
       } else {
         ui.row.classList.add("is-fail");
         ui.st.className = "probe-status fail";
         ui.st.textContent = "fail";
-        ui.detail.textContent = hit.detail || "fail";
+        ui.detail.textContent = (hit.detail || "fail") + via;
         // still allow manual pick of fail iface
         ui.row.style.cursor = "pointer";
-        ui.row.addEventListener("click", () => {
-          rows.forEach((v) => v.row.classList.remove("is-picked"));
-          ui.row.classList.add("is-picked");
-          pickInfo.current = iface.name;
-          modal.ok.disabled = false;
-        });
+        ui.row.addEventListener("click", selectRow);
       }
     } catch (err) {
       ui.row.classList.remove("is-testing");
@@ -769,6 +767,7 @@ async function addRuleWizard() {
   const payload = {
     name: name.value.trim(),
     interface: picked,
+    dns: pickDNS.current || "",
     domains: kindVal === "domain" ? [valueVal] : [],
     ips: kindVal === "ip" ? [valueVal] : [],
   };
@@ -966,6 +965,57 @@ el("dp-form").addEventListener("submit", async (e) => {
   }
 });
 
+function activateTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.toggle("is-active", t.dataset.tab === name);
+  });
+  document.querySelectorAll(".tab-panel").forEach((p) => {
+    p.classList.toggle("is-active", p.dataset.panel === name);
+  });
+}
+
+function renderSetupBanner(status) {
+  const banner = el("setup-banner");
+  if (!banner) return;
+  const setup = status && status.setup;
+  if (!setup || !setup.incomplete) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  const missing = setup.missing_ifaces || [];
+  el("setup-title").textContent = missing.length
+    ? "Interfaces missing"
+    : "Setup needed";
+  el("setup-hint").textContent = setup.hint || "Configure default path and rules.";
+  const miss = el("setup-missing");
+  if (missing.length) {
+    miss.hidden = false;
+    miss.textContent = "Missing: " + missing.join(", ");
+  } else {
+    miss.hidden = true;
+    miss.textContent = "";
+  }
+}
+
+el("btn-setup-default").addEventListener("click", () => activateTab("default"));
+el("btn-setup-rules").addEventListener("click", () => activateTab("rules"));
+el("btn-setup-import-discord").addEventListener("click", async () => {
+  const ok = await confirmModal(
+    "Import Discord example",
+    "Overwrite the active config with the Discord/WARP example? Edit iface names afterward (eno1 / CloudflareWARP are placeholders).",
+    { okText: "Import & apply" }
+  );
+  if (!ok) return;
+  try {
+    await jpost("/api/configs/import", { name: "discord.config.yaml" });
+    await refresh();
+    activateTab("default");
+  } catch (err) {
+    alert(String(err.message || err));
+  }
+});
+
 async function refresh() {
   if (refreshInFlight) return;
   refreshInFlight = true;
@@ -983,6 +1033,7 @@ async function refresh() {
     lastHealth = health;
     if (health && health.rev) lastRev = health.rev;
     renderLive(health || { ok: true });
+    renderSetupBanner(status);
     if (!selectedCfgPath) selectedCfgPath = configs.active || "";
     renderViz(status, cfg, ifaces);
     renderIfaces(ifaces, status.config_iface || "");
