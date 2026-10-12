@@ -96,6 +96,8 @@ install: check-deps-install build
 		echo "keeping existing $(DESTDIR)$(SYSCONFDIR)/config.yaml"; \
 	fi
 	@if [ -z "$(DESTDIR)" ]; then \
+		# Avoid user_home_t labels from cp -a (blocks systemd unit writes under Enforcing).
+		if command -v restorecon >/dev/null 2>&1; then restorecon -RF $(SYSCONFDIR) || true; fi; \
 		systemctl daemon-reload || true; \
 		echo "installed unit $(UNITDIR)/$(UNIT_NAME)"; \
 		if [ "$(ENABLE)" = "1" ]; then $(MAKE) enable; fi; \

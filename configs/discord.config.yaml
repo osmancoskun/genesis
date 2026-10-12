@@ -57,6 +57,20 @@ rules:
         - "*.discordapp.net"
         - discord.media
         - "*.discord.media"
+        - discordcdn.com
+        - "*.discordcdn.com"
+        - discord.dev
+        - "*.discord.dev"
+        - discord.new
+        - "*.discord.new"
+        - discord.gift
+        - "*.discord.gift"
+        - discordstatus.com
+        - "*.discordstatus.com"
+        - dis.gd
+        - "*.dis.gd"
+        - discord.co
+        - "*.discord.co"
       ips: []
     dns: 1.1.1.1
     interface: CloudflareWARP

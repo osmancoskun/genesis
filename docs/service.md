@@ -43,7 +43,7 @@ genesis-ctl down
 
 | Make target | Effect |
 |-------------|--------|
-| `sudo make install` | Binaries, unit, docs, share examples; blank `/etc/genesis/config.yaml` only if missing |
+| `sudo make install` | Binaries, unit, docs, share examples; blank `/etc/genesis/config.yaml` only if missing; `restorecon` on `/etc/genesis` when available |
 | `sudo make install ENABLE=1` | Same + `systemctl enable --now genesis.service` |
 | `sudo make enable` | Enable/start only |
 | `sudo make uninstall` | Stop/disable; remove binaries/unit/docs; keep `/etc/genesis` |
