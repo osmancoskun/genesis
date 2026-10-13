@@ -158,8 +158,11 @@ Undo routes and split DNS: `./scripts/host-cleanup.sh`
 
 ## Fedora RPM
 
+Build and install stay on Make; packaging is Meson-orchestrated:
+
 ```bash
-make rpm
+make package-rpm
+# VERSION_MODE=tag make package-rpm   # exact git tag, no patch bump
 ```
 
-See [packaging/fedora/README.md](packaging/fedora/README.md).
+Version and changelog come from git (see [packaging/fedora/README.md](packaging/fedora/README.md)).

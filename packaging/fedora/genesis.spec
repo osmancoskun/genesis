@@ -1,13 +1,9 @@
 # Fedora / RHEL-style package for genesis.
 #
 # Build from repo root (network needed for go mod download unless vendored):
-#   make rpm
+#   make package-rpm
 #
-# Or manually:
-#   make dist
-#   rpmbuild -ba --define "_topdir $PWD/dist/rpm" \
-#     --define "genesis_version <ver>" packaging/fedora/genesis.spec
-#
+# Meson runs scripts/package-rpm.sh (version + changelog from git).
 # Layout matches: make install DESTDIR=%{buildroot} PREFIX=/usr ENABLE=0
 #
 # Note: first skeleton uses network module download. Prefer vendor/ +
@@ -28,7 +24,12 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  golang
 BuildRequires:  make
 BuildRequires:  systemd-rpm-macros
+# Runtime: unit + Mode B / link DNS (resolve1) + policy routing diagnostics.
 Requires:       systemd
+Requires:       systemd-resolved
+Requires:       dbus
+Requires:       iproute
+Recommends:     nftables
 
 %description
 Self-hosted Linux agent that steers DNS and connection traffic onto
@@ -65,6 +66,6 @@ make install DESTDIR=%{buildroot} PREFIX=/usr ENABLE=0
 %dir %{_sysconfdir}/genesis
 %config(noreplace) %{_sysconfdir}/genesis/config.yaml
 
-# %changelog is injected at package build time (make rpm → scripts/gen-rpm-changelog.sh).
+# %changelog is injected at package build time (make package-rpm → assemble-rpm-spec.sh).
 %changelog
 

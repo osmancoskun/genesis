@@ -1,11 +1,12 @@
 # genesis — build, install, and packaging
 #
 # Developer install (default PREFIX=/usr/local):
-#   make check-deps && make build && sudo make install ENABLE=1
+#   make build-deps && make deps && make build && sudo make install ENABLE=1
 #
-# RPM stage (same layout, PREFIX=/usr):
-#   make install DESTDIR=/tmp/root PREFIX=/usr
-#   make rpm
+# Fedora RPM (Meson orchestration; Go build stays in Make):
+#   make package-rpm
+#   VERSION_MODE=tag make package-rpm   # exact newest v* tag, no patch bump
+#   VERSION=1.2.3 make package-rpm      # hard override
 
 DESTDIR ?=
 PREFIX  ?= /usr/local
@@ -18,9 +19,14 @@ DOCDIR      := $(PREFIX)/share/doc/genesis
 SHAREDIR    := $(PREFIX)/share/genesis
 SYSCONFDIR  := /etc/genesis
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0)
-# RPM Version must start with a digit; fall back when git describe is a bare hash.
-RPM_VERSION ?= $(shell ./scripts/rpm-version.sh "$(VERSION)")
+# Git-derived X.Y.Z (see scripts/git-version.sh). VERSION= override / VERSION_MODE=auto|tag.
+VERSION_MODE ?= auto
+VERSION      ?= $(shell VERSION_MODE='$(VERSION_MODE)' ./scripts/git-version.sh)
+RPM_VERSION  ?= $(VERSION)
+export VERSION
+export VERSION_MODE
+
+MESON_BUILDDIR ?= build/meson
 
 GO       ?= go
 CGO      := CGO_ENABLED=0
@@ -34,8 +40,9 @@ UNIT_NAME := genesis.service
 
 .PHONY: verify test tidy doctor agent menu setup pin-check \
 	demo-docker demo-docker-split host-dry host-cleanup \
-	check-deps check-deps-install build unit install enable uninstall \
-	rpm dist clean
+	build-deps deps check-deps check-deps-install check-deps-package check-deps-runtime \
+	build unit install enable uninstall \
+	package-rpm rpm dist clean
 
 verify:
 	$(GO) run ./cmd/verify
@@ -61,13 +68,25 @@ menu:
 setup:
 	$(GO) run ./cmd/ctl setup
 
-check-deps:
+# build-deps: Go toolchain for make build
+# deps:       host runtime (systemd, resolved, D-Bus, iproute, …)
+build-deps:
 	@./scripts/check-deps.sh build
+
+deps:
+	@./scripts/check-deps.sh runtime
+
+check-deps: build-deps
+
+check-deps-runtime: deps
 
 check-deps-install:
 	@./scripts/check-deps.sh install
 
-build:
+check-deps-package:
+	@./scripts/check-deps.sh package
+
+build: build-deps
 	mkdir -p bin
 	$(CGO) $(GO) build $(GOFLAGS) -o $(AGENT_OUT) ./cmd/agent
 	$(CGO) $(GO) build $(GOFLAGS) -o $(CTL_OUT) ./cmd/ctl
@@ -126,34 +145,34 @@ uninstall:
 		echo "left $(DESTDIR)$(SYSCONFDIR) (PURGE=1 to remove)"; \
 	fi
 
-# Source tarball of the working tree (so uncommitted packaging changes are testable).
-# Excludes build artifacts and VCS metadata.
+# Source tarball (also produced by package-rpm via Meson).
 dist:
 	mkdir -p dist
 	tar -czf dist/genesis-$(RPM_VERSION).tar.gz \
 		--exclude='.git' \
 		--exclude='bin' \
 		--exclude='dist' \
+		--exclude='build' \
 		--exclude='docker/split/.build' \
 		--exclude='configs/local.yaml' \
 		--exclude='configs/local-*.yaml' \
 		--transform='s,^\./,genesis-$(RPM_VERSION)/,' \
 		.
 
-# Changelog is generated at build time into dist/rpm/SPECS/ (repo spec stays placeholder).
-rpm:
-	$(MAKE) dist
-	mkdir -p dist/rpm/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-	cp dist/genesis-$(RPM_VERSION).tar.gz dist/rpm/SOURCES/
-	./scripts/assemble-rpm-spec.sh dist/rpm/SPECS/genesis.spec $(RPM_VERSION) 1
-	rpmbuild -ba \
-		--define "_topdir $(CURDIR)/dist/rpm" \
-		--define "genesis_version $(RPM_VERSION)" \
-		dist/rpm/SPECS/genesis.spec
-	@echo "RPMs under dist/rpm/RPMS/"
+# Fedora RPM via Meson (version + changelog from git; Go build still Make inside the spec).
+package-rpm: check-deps-package
+	@if [ -d "$(MESON_BUILDDIR)" ]; then \
+		meson setup "$(MESON_BUILDDIR)" --reconfigure; \
+	else \
+		meson setup "$(MESON_BUILDDIR)"; \
+	fi
+	meson compile -C "$(MESON_BUILDDIR)" package_rpm
+
+# Backward-compatible alias.
+rpm: package-rpm
 
 clean:
-	rm -rf bin dist/rpm
+	rm -rf bin dist/rpm "$(MESON_BUILDDIR)"
 	rm -f dist/genesis-*.tar.gz
 
 # Two CoreDNS hello-world upstreams + agent; exits non-zero if steering fails.
