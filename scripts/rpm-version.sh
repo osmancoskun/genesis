@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Normalize a git describe / tag into an RPM Version (must start with a digit).
+# Normalize a version string into RPM Version (must start with a digit).
+# With no args, delegates to git-version.sh (VERSION / VERSION_MODE respected).
 set -euo pipefail
-raw="${1:-0.1.0}"
-v="$(printf '%s' "$raw" | sed -E 's/^v//; s/[^0-9A-Za-z.+~]+/./g; s/^\.+//; s/\.+$//')"
-case "$v" in
-[0-9]*) printf '%s\n' "$v" ;;
-*) printf '0.1.0\n' ;;
-esac
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [[ $# -eq 0 || -z "${1:-}" ]]; then
+	exec "$ROOT/scripts/git-version.sh"
+fi
+
+# Reuse git-version override path for consistent X.Y.Z output.
+VERSION="$1" exec "$ROOT/scripts/git-version.sh"

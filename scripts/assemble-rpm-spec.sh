@@ -10,7 +10,7 @@ VERSION="${2:-}"
 RELEASE="${3:-1}"
 
 if [[ -z "$VERSION" ]]; then
-	VERSION="$("$ROOT/scripts/rpm-version.sh" "$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo 0.1.0)")"
+	VERSION="$("$ROOT/scripts/git-version.sh")"
 fi
 
 mkdir -p "$(dirname "$OUT")"
