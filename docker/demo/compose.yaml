@@ -24,7 +24,7 @@ services:
   agent:
     build:
       context: ../..
-      dockerfile: Dockerfile
+      dockerfile: docker/agent/Dockerfile
     depends_on:
       - dns-alpha
       - dns-beta
