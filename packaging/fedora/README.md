@@ -9,6 +9,28 @@ make build
 make install DESTDIR=$buildroot PREFIX=/usr ENABLE=0
 ```
 
+## CI (tag → Release + Packages)
+
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](../../.github/workflows/release.yml):
+
+1. Builds the Fedora RPM (`make package-rpm` in Fedora 44)
+2. Creates a GitHub **Release** with `.rpm` / `.src.rpm` assets
+3. Pushes the agent image to **GHCR** (`ghcr.io/<owner>/genesis`)
+4. Pushes the binary RPM as an OCI artifact (`ghcr.io/<owner>/genesis-rpm`)
+
+```bash
+git tag -a v0.1.2 -m "v0.1.2"
+git push origin v0.1.2
+```
+
+Local dry-run (same Fedora 44 container as CI, no GitHub push):
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src \
+  -e VERSION_MODE=tag -e VERSION=0.1.1 \
+  fedora:44 bash -lc './scripts/ci-package-rpm.sh'
+```
+
 ## Quick RPM build
 
 From the repository root:

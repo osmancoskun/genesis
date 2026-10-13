@@ -42,10 +42,13 @@ config under /etc/genesis (config noreplace), and share examples.
 
 %build
 # Network build for modules; switch to vendor/ for offline / COPR.
+# CI may install a newer Go under /usr/local/go (BuildRequires still needs golang RPM).
+export PATH="/usr/local/go/bin:${PATH}"
 export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
 make build
 
 %install
+export PATH="/usr/local/go/bin:${PATH}"
 make install DESTDIR=%{buildroot} PREFIX=/usr ENABLE=0
 
 %post

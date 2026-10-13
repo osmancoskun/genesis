@@ -96,7 +96,9 @@ unit: $(UNIT_IN)
 	sed 's|@PREFIX@|$(PREFIX)|g' $(UNIT_IN) > $(UNIT_GEN)
 	@echo "wrote $(UNIT_GEN) (PREFIX=$(PREFIX))"
 
-install: check-deps-install build
+# Live install checks full runtime deps; DESTDIR staging (rpmbuild) only needs a successful build.
+install: build
+	@if [ -z "$(DESTDIR)" ]; then ./scripts/check-deps.sh install; fi
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(AGENT_OUT) $(DESTDIR)$(BINDIR)/genesis-agent
 	install -m 755 $(CTL_OUT) $(DESTDIR)$(BINDIR)/genesis-ctl

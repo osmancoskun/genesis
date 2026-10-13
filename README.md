@@ -165,4 +165,5 @@ make package-rpm
 # VERSION_MODE=tag make package-rpm   # exact git tag, no patch bump
 ```
 
-Version and changelog come from git (see [packaging/fedora/README.md](packaging/fedora/README.md)).
+Pushing a `v*` tag builds the RPM in CI, creates a GitHub Release, and publishes
+GHCR packages (see [packaging/fedora/README.md](packaging/fedora/README.md)).
