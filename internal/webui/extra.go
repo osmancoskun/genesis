@@ -289,26 +289,28 @@ func (s *Server) handleRulesAdd(w http.ResponseWriter, r *http.Request) {
 func actionCommands(configPath string) map[string]string {
 	cfg := configPath
 	if cfg == "" {
-		cfg = "configs/local.yaml"
+		cfg = appconfig.SystemConfigDir + "/config.yaml"
 	}
 	return map[string]string{
-		"agent_fg":       "go run ./cmd/agent -config " + cfg,
-		"agent_dry_run":  "go run ./cmd/agent -config " + cfg + " -pins dry-run -default-path dry-run",
-		"agent_sudo":     "sudo go run ./cmd/agent -config " + cfg,
-		"ctl_run":        "go run ./cmd/ctl -config " + cfg + " run",
-		"ctl_menu":       "go run ./cmd/ctl -config " + cfg + " menu",
-		"ctl_doctor":     "go run ./cmd/ctl doctor",
-		"service_up":     "go run ./cmd/ctl up",
-		"service_down":   "go run ./cmd/ctl down",
-		"service_apply":  "go run ./cmd/ctl apply",
-		"service_status": "go run ./cmd/ctl service-status",
+		"agent_fg":       "genesis-agent -config " + cfg,
+		"agent_dry_run":  "genesis-agent -config " + cfg + " -pins dry-run -default-path dry-run",
+		"agent_sudo":     "sudo genesis-agent -config " + cfg,
+		"ctl_run":        "genesis-ctl -config " + cfg + " run",
+		"ctl_menu":       "genesis-ctl menu",
+		"ctl_status":     "genesis-ctl status",
+		"ctl_doctor":     "genesis-ctl doctor",
+		"service_up":     "genesis-ctl up",
+		"service_down":   "genesis-ctl down",
+		"service_apply":  "genesis-ctl apply",
+		"service_status": "genesis-ctl service-status",
 		"install_unit":   "sudo make install ENABLE=1",
 	}
 }
 
 func presets() []map[string]string {
 	return []map[string]string{
-		{"id": "discord", "label": "Discord via WARP", "config": "configs/discord.config.yaml"},
+		{"id": "system", "label": "System (/etc/genesis)", "config": appconfig.SystemConfigDir + "/config.yaml"},
+		{"id": "discord", "label": "Discord via WARP example", "config": "configs/discord.config.yaml"},
 		{"id": "local", "label": "Local editable", "config": "configs/local.yaml"},
 		{"id": "listen_5553", "label": "DNS UDP 127.0.0.1:5553", "listen": appconfig.DefaultListen},
 		{"id": "ui_8787", "label": "UI TCP 127.0.0.1:8787", "ui": appconfig.DefaultUI},

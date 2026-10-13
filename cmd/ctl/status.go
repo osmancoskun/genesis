@@ -3,41 +3,17 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"dnsredirector/internal/appconfig"
 )
 
-// statusConfigPath prefers an explicit -config / GENESIS_CONFIG, then the
-// system config when the unit is installed (that is what the service reads).
-func statusConfigPath() string {
-	if strings.TrimSpace(os.Getenv(appconfig.EnvConfig)) != "" {
-		return appconfig.FindExisting()
-	}
-	sys := filepath.Join(appconfig.SystemConfigDir, "config.yaml")
-	if unitInstalled() {
-		if _, err := os.Stat(sys); err == nil {
-			return sys
-		}
-	}
-	if p := appconfig.FindExisting(); p != "" {
-		return p
-	}
-	if _, err := os.Stat(sys); err == nil {
-		return sys
-	}
-	return ""
-}
-
 func runStatus() error {
-	path := statusConfigPath()
+	path := activeConfigPath()
 	if path == "" {
-		fmt.Println("config:   none found (run: genesis-ctl setup)")
-		fmt.Printf("looked in: %s, %s\n", stringsJoin(appconfig.CandidatePaths()),
-			filepath.Join(appconfig.SystemConfigDir, "config.yaml"))
+		fmt.Println("config:   none found (run: " + ctlCmd() + " setup)")
+		fmt.Printf("looked in: %s\n", strings.Join(appconfig.CandidatePaths(), ", "))
 		return nil
 	}
 	f, err := appconfig.LoadFile(path)
@@ -49,11 +25,41 @@ func runStatus() error {
 	fmt.Printf("pins:     %s\n", f.Agent.Pins)
 	fmt.Printf("default:  %s (mode %s)\n", orDash(f.DefaultPath.Interface), f.Agent.DefaultPathMode)
 	fmt.Printf("rules:    %d\n", len(f.Rules))
+	for _, r := range f.Rules {
+		match := strings.Join(r.Match.Domains, ",")
+		if len(r.Match.IPs) > 0 {
+			if match != "" {
+				match += " "
+			}
+			match += "ips=" + strings.Join(r.Match.IPs, ",")
+		}
+		if match == "" {
+			match = "-"
+		}
+		fmt.Printf("  - %-16s iface=%-16s dns=%-16s match=%s\n",
+			orDash(r.Name), orDash(r.Interface), orDash(r.DNS), match)
+	}
 	fmt.Printf("service:  %s\n", serviceState())
+	printConfigInventory(path)
 	return nil
 }
 
-// printEndpoints shows where the agent listens and whether the Web UI answers.
+func printConfigInventory(active string) {
+	items, err := appconfig.ListConfigFiles(active)
+	if err != nil || len(items) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		p := it.Path
+		if it.Active {
+			p += " *"
+		}
+		parts = append(parts, p)
+	}
+	fmt.Printf("configs:  %s\n", strings.Join(parts, ", "))
+}
+
 func printEndpoints(f *appconfig.File) {
 	if ui := f.EffectiveUIListen(); ui != "" {
 		fmt.Printf("web ui:   http://%s (%s)\n", ui, reachable(ui))

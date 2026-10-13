@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ type setupPick struct {
 }
 
 func runSetup(args []string) error {
-	outPath := appconfig.DefaultWritePath()
+	outPath := defaultConfigWritePath()
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--out" && i+1 < len(args) {
 			outPath = args[i+1]
@@ -192,14 +193,19 @@ func runSetup(args []string) error {
 
 	cfg.Rules = mergePicks(picks)
 
-	if existing := appconfig.FindExisting(); existing != "" && existing != outPath {
+	if existing := activeConfigPath(); existing != "" && existing != outPath {
 		fmt.Printf("\nNote: another config exists at %s; writing to %s\n", existing, outPath)
 	}
 	if err := appconfig.SaveFile(outPath, cfg); err != nil {
 		return err
 	}
 	fmt.Printf("\nWrote %s (%d rule(s))\n", outPath, len(cfg.Rules))
-	fmt.Println("Next: go run ./cmd/ctl menu   or   go run ./cmd/agent -config", outPath)
+	if unitInstalled() && outPath == filepath.Join(appconfig.SystemConfigDir, "config.yaml") {
+		fmt.Println("Next:", ctlCmd(), "apply   # reload running service")
+		fmt.Println("  or:", ctlCmd(), "status")
+	} else {
+		fmt.Println("Next:", ctlCmd(), "menu   or  ", agentCmd(), "-config", outPath)
+	}
 	return nil
 }
 

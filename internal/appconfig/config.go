@@ -74,6 +74,8 @@ func CandidatePaths() []string {
 	if home, err := os.UserHomeDir(); err == nil {
 		out = append(out, filepath.Join(home, ".config", "genesis", "config.yaml"))
 	}
+	// Packaged / make install live config (what genesis.service reads).
+	out = append(out, filepath.Join(SystemConfigDir, "config.yaml"))
 	return out
 }
 

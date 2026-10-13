@@ -18,16 +18,17 @@ func runMenu(_ []string) error {
 	in := bufio.NewReader(os.Stdin)
 	for {
 		clearScreen()
-		path := appconfig.FindExisting()
+		path := activeConfigPath()
 		printMenuTable("genesis menu", []menuRow{
 			{"1", "setup", "interactive config wizard"},
 			{"2", "run", "start agent with current config"},
-			{"3", "view config", "print loaded config summary"},
-			{"4", "list networks", "show interfaces"},
-			{"5", "default-path", "set iface + mode in config"},
-			{"6", "doctor", "host readiness checks"},
-			{"7", "pin check", "CAP_NET_ADMIN probe"},
-			{"8", "service", "up / down / apply (hot reload)"},
+			{"3", "status", "config, rules, web ui, service"},
+			{"4", "view config", "print loaded config summary"},
+			{"5", "list networks", "show interfaces"},
+			{"6", "default-path", "set iface + mode in config"},
+			{"7", "doctor", "host readiness checks"},
+			{"8", "pin check", "CAP_NET_ADMIN probe"},
+			{"9", "service", "up / down / apply (hot reload)"},
 			{"0", "quit", ""},
 		})
 		fmt.Println()
@@ -36,6 +37,9 @@ func runMenu(_ []string) error {
 			fmt.Printf("Looked in: %s\n", strings.Join(appconfig.CandidatePaths(), ", "))
 		} else {
 			fmt.Printf("Config: %s\n", path)
+			if unitInstalled() {
+				fmt.Println("(systemd unit installed — this matches genesis.service)")
+			}
 		}
 		fmt.Print("\n> ")
 		line, err := in.ReadString('\n')
@@ -56,7 +60,11 @@ func runMenu(_ []string) error {
 				fmt.Fprintf(os.Stderr, "run: %v\n", err)
 			}
 			pauseEnter(in)
-		case "8", "service", "up", "apply":
+		case "3", "status":
+			clearScreen()
+			_ = runStatus()
+			pauseEnter(in)
+		case "9", "service", "up", "apply":
 			clearScreen()
 			printMenuTable("service", []menuRow{
 				{"1", "up", "systemctl start genesis"},
@@ -81,29 +89,29 @@ func runMenu(_ []string) error {
 				_ = runService([]string{"service-status"})
 			}
 			pauseEnter(in)
-		case "3", "view", "config":
+		case "4", "view", "config":
 			clearScreen()
 			if err := menuViewConfig(); err != nil {
 				fmt.Fprintf(os.Stderr, "view: %v\n", err)
 			}
 			pauseEnter(in)
-		case "4", "list", "ifaces":
+		case "5", "list", "ifaces":
 			clearScreen()
 			if err := menuListNetworks(); err != nil {
 				fmt.Fprintf(os.Stderr, "list: %v\n", err)
 			}
 			pauseEnter(in)
-		case "5", "gateway", "default-path":
+		case "6", "gateway", "default-path":
 			clearScreen()
 			if err := menuSetDefaultPath(in); err != nil {
 				fmt.Fprintf(os.Stderr, "default-path: %v\n", err)
 			}
 			pauseEnter(in)
-		case "6", "doctor":
+		case "7", "doctor":
 			clearScreen()
 			fmt.Print(doctor.Run().Format())
 			pauseEnter(in)
-		case "7", "pin":
+		case "8", "pin":
 			clearScreen()
 			_ = runPin([]string{"check"})
 			pauseEnter(in)
@@ -120,9 +128,9 @@ func runMenu(_ []string) error {
 func menuViewConfig() error {
 	fmt.Println("view config")
 	fmt.Println("-----------")
-	path := appconfig.FindExisting()
+	path := activeConfigPath()
 	if path == "" {
-		fmt.Println("No config found. Run setup first: go run ./cmd/ctl setup")
+		fmt.Println("No config found. Run setup first:", ctlCmd(), "setup")
 		return nil
 	}
 	f, err := appconfig.LoadFile(path)
@@ -153,7 +161,7 @@ func menuListNetworks() error {
 		return err
 	}
 	opts := netinfo.FormatOpts{}
-	if path := appconfig.FindExisting(); path != "" {
+	if path := activeConfigPath(); path != "" {
 		if f, err := appconfig.LoadFile(path); err == nil {
 			opts.ConfigDefaultPath = f.DefaultPath.Interface
 		}
@@ -165,9 +173,9 @@ func menuListNetworks() error {
 func menuSetDefaultPath(in *bufio.Reader) error {
 	fmt.Println("set default-path")
 	fmt.Println("----------------")
-	path := appconfig.FindExisting()
+	path := activeConfigPath()
 	if path == "" {
-		return fmt.Errorf("no config — run setup first")
+		return fmt.Errorf("no config — run %s setup first", ctlCmd())
 	}
 	f, err := appconfig.LoadFile(path)
 	if err != nil {
@@ -308,10 +316,15 @@ func ifaceNames(ifaces []netinfo.Iface) []string {
 func menuRun() error {
 	fmt.Println("run agent")
 	fmt.Println("---------")
-	path := appconfig.FindExisting()
+	path := activeConfigPath()
 	if path == "" {
 		fmt.Println("No config found. Run setup first (menu option 1).")
 		return nil
+	}
+	if unitInstalled() && unitActive() {
+		fmt.Println("genesis.service is already active.")
+		fmt.Println("Prefer:", ctlCmd(), "apply  (hot-reload) or", ctlCmd(), "restart")
+		fmt.Println("Foreground run below would start a second agent — Ctrl-C to abort, Enter to continue.")
 	}
 	f, err := appconfig.LoadFile(path)
 	if err != nil {
@@ -341,11 +354,17 @@ func menuRun() error {
 }
 
 func agentLaunch(configPath string) (string, []string) {
+	if p, err := exec.LookPath("genesis-agent"); err == nil {
+		return p, []string{"-config", configPath}
+	}
 	self, err := os.Executable()
 	if err == nil {
-		cand := filepath.Join(filepath.Dir(self), "agent")
-		if st, err := os.Stat(cand); err == nil && !st.IsDir() {
-			return cand, []string{"-config", configPath}
+		dir := filepath.Dir(self)
+		for _, name := range []string{"genesis-agent", "agent"} {
+			cand := filepath.Join(dir, name)
+			if st, err := os.Stat(cand); err == nil && !st.IsDir() {
+				return cand, []string{"-config", configPath}
+			}
 		}
 	}
 	return "go", []string{"run", "./cmd/agent", "-config", configPath}

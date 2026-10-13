@@ -548,7 +548,7 @@ func loadAgentConfig(configPath, rulesPath string) (*appconfig.File, *rules.Conf
 	}
 	if rulesPath == "" {
 		rulesPath = "examples/example.rules.yaml"
-		fmt.Fprintf(os.Stderr, "warning: no config found (tried GENESIS_CONFIG, configs/local.yaml, ~/.config/genesis/config.yaml)\n")
+		fmt.Fprintf(os.Stderr, "warning: no config found (tried GENESIS_CONFIG, configs/local.yaml, ~/.config/genesis/config.yaml, %s/config.yaml)\n", appconfig.SystemConfigDir)
 		fmt.Fprintf(os.Stderr, "warning: falling back to -rules %s — run: go run ./cmd/ctl setup\n", rulesPath)
 	}
 	rc, err := rules.LoadFile(rulesPath)

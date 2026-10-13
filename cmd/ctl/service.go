@@ -43,7 +43,7 @@ func serviceUp() error {
 	}
 	fmt.Println("No systemd unit installed — see docs/service.md")
 	fmt.Println("Falling back to foreground tip:")
-	fmt.Println("  go run ./cmd/ctl run")
+	fmt.Println(" ", ctlCmd(), "run")
 	fmt.Println("Install: sudo make install ENABLE=1")
 	return fmt.Errorf("systemd unit %s not found", systemdUnit)
 }
@@ -66,7 +66,7 @@ func serviceApply() error {
 }
 
 func serviceStatus() error {
-	if p := statusConfigPath(); p != "" {
+	if p := activeConfigPath(); p != "" {
 		if f, err := appconfig.LoadFile(p); err == nil {
 			printEndpoints(f)
 			fmt.Println()

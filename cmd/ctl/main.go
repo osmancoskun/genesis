@@ -62,7 +62,7 @@ func main() {
 			os.Exit(1)
 		}
 		opts := netinfo.FormatOpts{}
-		if p := appconfig.FindExisting(); p != "" {
+		if p := activeConfigPath(); p != "" {
 			if f, err := appconfig.LoadFile(p); err == nil {
 				opts.ConfigDefaultPath = f.DefaultPath.Interface
 			}
@@ -74,7 +74,7 @@ func main() {
 		path := ""
 		if len(args) > 1 {
 			path = args[1]
-		} else if p := appconfig.FindExisting(); p != "" {
+		} else if p := activeConfigPath(); p != "" {
 			path = p
 		} else {
 			path = "examples/example.rules.yaml"
@@ -177,11 +177,11 @@ func runPin(args []string) error {
 		if err := pathpin.ProbeNetAdmin(); err != nil {
 			fmt.Println("pin check: NOT ready for live netlink pins")
 			fmt.Println(err.Error())
-			fmt.Println("safe default: go run ./cmd/agent -pins dry-run …")
+			fmt.Println("safe default:", agentCmd(), "-pins dry-run …")
 			return nil
 		}
 		fmt.Println("pin check: CAP_NET_ADMIN appears available for live netlink pins")
-		fmt.Println("still prefer: ctl pin dry-run --dst 192.0.2.10 --iface <iface> before -pins netlink")
+		fmt.Println("still prefer:", ctlCmd(), "pin dry-run --dst 192.0.2.10 --iface <iface> before -pins netlink")
 		fmt.Println("never point automated tests at live VPN ifaces you need")
 		return nil
 	case "dry-run":
@@ -302,36 +302,41 @@ func runDefaultPath(args []string) error {
 }
 
 func usage() {
+	c := ctlCmd()
+	a := agentCmd()
 	fmt.Fprintf(os.Stderr, `genesis ctl
 
 Usage:
-  go run ./cmd/ctl [-config PATH]              # interactive menu (TTY)
-  go run ./cmd/ctl [-config PATH] menu
-  go run ./cmd/ctl [-config PATH] run          # start agent with config (foreground)
-  go run ./cmd/ctl up|down|restart|apply       # systemd service / SIGHUP hot-reload
-  go run ./cmd/ctl service-status
-  go run ./cmd/ctl [-config PATH] setup [--out PATH]
-  go run ./cmd/ctl [-config PATH] config show
-  go run ./cmd/ctl ifaces
-  go run ./cmd/ctl doctor
-  go run ./cmd/ctl rules [path]
-  go run ./cmd/ctl status                      # config, web ui address, dns listen, service
-  go run ./cmd/ctl pin check
-  go run ./cmd/ctl pin dry-run --dst 192.0.2.10 --iface eno1
-  go run ./cmd/ctl default-path check
-  go run ./cmd/ctl default-path dry-run --iface wg0
-  go run ./cmd/ctl default-path apply --iface eno1   # needs CAP_NET_ADMIN / sudo
+  %s [-config PATH]              # interactive menu (TTY)
+  %s [-config PATH] menu
+  %s [-config PATH] run          # start agent with current config (foreground)
+  %s up|down|restart|apply       # systemd service / SIGHUP hot-reload
+  %s service-status
+  %s [-config PATH] setup [--out PATH]
+  %s [-config PATH] config show
+  %s ifaces
+  %s doctor
+  %s rules [path]
+  %s status                      # config, rules, web ui, service
+  %s pin check
+  %s pin dry-run --dst 192.0.2.10 --iface eno1
+  %s default-path check
+  %s default-path dry-run --iface wg0
+  %s default-path apply --iface eno1   # needs CAP_NET_ADMIN / sudo
 
 Examples:
-  go run ./cmd/ctl -config configs/discord.config.yaml menu
-  go run ./cmd/ctl -config configs/discord.config.yaml run
-  go run ./cmd/agent -config configs/discord.config.yaml
+  %s -config configs/discord.config.yaml menu
+  %s status
+  %s -config /etc/genesis/config.yaml
 
-Env (same as -config / -listen on agent):
-  GENESIS_CONFIG   config file path (default configs/local.yaml)
+With the systemd unit installed, the active config defaults to /etc/genesis/config.yaml
+(same file the service reads). Override with -config or GENESIS_CONFIG.
+
+Env:
+  GENESIS_CONFIG   config file path (also: configs/local.yaml, ~/.config/genesis/, /etc/genesis/)
   GENESIS_LISTEN   override agent listen (default 127.0.0.1:5553)
   GENESIS_UI       override web ui listen (default 127.0.0.1:8787, off disables)
-`)
+`, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, a)
 }
 
 func printRules(cfg *rules.Config) {
