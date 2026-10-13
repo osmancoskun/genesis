@@ -81,7 +81,11 @@ func (a *NetlinkApplier) Apply(p Pin) error {
 	if attrs.Flags&net.FlagUp == 0 {
 		return fmt.Errorf("%w: interface %q is down", ErrRefused, p.Interface)
 	}
-	gw := gatewayForLink(attrs.Index)
+	broadcast := attrs.Flags&net.FlagBroadcast != 0
+	gw, err := gatewayForPin(attrs.Index, p.Dst, broadcast)
+	if err != nil {
+		return err
+	}
 	plan, err := BuildPlan(p, attrs.Index, gw)
 	if err != nil {
 		return err
@@ -212,16 +216,21 @@ func gatewayForLink(ifindex int) net.IP {
 	return fallback
 }
 
-func isDefaultDst(dst *net.IPNet) bool {
-	if dst == nil || dst.IP == nil {
-		return true // netlink often encodes default as nil Dst
+func gatewayForPin(ifindex int, dst net.IP, broadcast bool) (net.IP, error) {
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, fmt.Errorf("pathpin: list routes: %w", err)
 	}
-	ip4 := dst.IP.To4()
-	if ip4 == nil {
-		return false
+	hints := make([]pinRouteHint, 0, len(routes))
+	for _, r := range routes {
+		hints = append(hints, pinRouteHint{
+			LinkIndex: r.LinkIndex,
+			Dst:       r.Dst,
+			Gw:        r.Gw,
+			Table:     r.Table,
+		})
 	}
-	ones, bits := dst.Mask.Size()
-	return bits == 32 && ones == 0 && ip4.IsUnspecified()
+	return pickGatewayForPin(ifindex, dst, hints, broadcast)
 }
 
 func isPerm(err error) bool {
