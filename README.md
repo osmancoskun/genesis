@@ -1,199 +1,165 @@
 # Genesis
 
-Self-hosted Linux agent that steers DNS and connection traffic onto preferred interfaces (VPN, NICs) using domain / subdomain / IP rules.
+Linux agent that sends DNS and connection traffic over a chosen interface (VPN, NIC) based on domain and IP rules.
 
-Docs: [architecture](docs/dns-redirector-plan.md) · [ctl manual](docs/ctl-manual.md) · [service](docs/service.md) · [resolved coexistence](docs/resolved-coexistence.md) · [conventions](docs/engineering-conventions.md)
+![genesis Web UI](docs/webui.png)
 
-MVP defaults: **fail closed**, IPv4-first pins, DoH warn-only, DNS UDP `127.0.0.1:5553`, Web UI TCP `http://127.0.0.1:8787` (localhost only).
+| Service | Default address |
+|---------|-----------------|
+| Web UI  | `http://127.0.0.1:8787` (TCP, localhost only) |
+| DNS stub | `127.0.0.1:5553` (UDP) |
 
----
+Docs: [ctl manual](docs/ctl-manual.md) · [service](docs/service.md) · [resolved coexistence](docs/resolved-coexistence.md) · [architecture](docs/dns-redirector-plan.md)
 
-## Fedora: install requirements
+## Requirements
+
+- Go 1.26 or newer
+- git, make
+- systemd (for the service)
+
+Fedora:
 
 ```bash
-# Build tools + Go
 sudo dnf install -y golang git make
-
-# Ops / debug helpers (agent itself uses netlink, not these CLIs)
-sudo dnf install -y bind-utils iproute systemd sudo
-
-# Optional — Discord-via-WARP workflow
-# Install Cloudflare WARP for Linux, then:
-#   warp-cli registration new   # if needed
-#   warp-cli connect
 ```
 
-| Tool | Fedora package | Used for |
-|------|----------------|----------|
-| `go` | `golang` | Build `cmd/agent`, `cmd/ctl` |
-| `dig` | `bind-utils` | Test DNS (`dig @127.0.0.1 -p 5553 …`) |
-| `ip` / `ss` | `iproute` | Inspect routes / listening ports |
-| `resolvectl` / `systemctl` | `systemd` | Mode B + genesis service |
-| `sudo` | `sudo` | Live netlink / install unit |
-| `warp-cli` | Cloudflare WARP | Optional VPN iface `CloudflareWARP` |
-
-Live pins need **`CAP_NET_ADMIN`** (and often **`CAP_NET_RAW`** for bind-to-device). Without them, use `pins: dry-run` or let `ctl` elevate with `sudo`.
-
----
+Debian / Ubuntu: install `git` and `make`, and Go 1.26+ from [go.dev/dl](https://go.dev/dl/) if the distro package is older.
 
 ## Build
 
 ```bash
-git clone git@github.com:osmancoskun/genesis.git
+git clone https://github.com/osmancoskun/genesis.git
 cd genesis
 make check-deps
-make build                    # → bin/genesis-agent, bin/genesis-ctl
-# optional checks
-make verify && make test
-```
-
-Or: `go build -o bin/genesis-agent ./cmd/agent` and `go build -o bin/genesis-ctl ./cmd/ctl`.
-
----
-
-## Install (system, Makefile)
-
-Developer default installs under `/usr/local` and stages the same layout RPM uses (`DESTDIR` + `PREFIX`).
-
-```bash
-make check-deps
 make build
-sudo make install ENABLE=1    # binaries, unit, blank /etc/genesis/config.yaml if missing
-# open http://127.0.0.1:8787 — set default path / rules (or Import Discord example)
-# optional Mode B (resolved Domains → :5553) — not part of make install:
-./scripts/host-resolved-modeb.sh install 5553
 ```
 
-| Target | Meaning |
-|--------|---------|
-| `make check-deps` | Require `go` (≥ `go.mod`), `install` |
-| `make build` | `CGO_ENABLED=0` binaries in `bin/` |
-| `sudo make install` | Install; does **not** start the unit |
-| `sudo make install ENABLE=1` | Install + `systemctl enable --now` |
-| `sudo make enable` | Enable/start after install |
-| `sudo make uninstall` | Remove binaries/unit/docs; keep `/etc/genesis` |
-| `sudo make uninstall PURGE=1` | Also remove `/etc/genesis` |
-| `make rpm` | Fedora RPM via [`packaging/fedora/`](packaging/fedora/) |
+Binaries: `bin/genesis-agent`, `bin/genesis-ctl`.
 
-Unit template: [`deploy/systemd/genesis.service.in`](deploy/systemd/genesis.service.in) (`@PREFIX@` → `/usr/local` or `/usr`).
-
----
-
-## Basic use (foreground)
-
-```bash
-# 1) Config — copy example or run setup
-cp configs/discord.config.yaml configs/local.yaml
-# edit eno1 / CloudflareWARP to match: go run ./cmd/ctl ifaces
-# or: go run ./cmd/ctl setup
-
-# 2) (Discord in browser) send Discord* DNS to the agent
-./scripts/host-resolved-modeb.sh install 5553
-# Turn OFF browser Secure DNS / DoH
-
-# 3) Run agent (sudo if pins/default_path are netlink)
-go run ./cmd/ctl -config configs/local.yaml run
-# or: ./genesis-ctl -config configs/local.yaml run
-# or: sudo ./genesis-agent -config configs/local.yaml
-
-# 4) Check
-dig @127.0.0.1 -p 5553 discord.com A
-resolvectl query discord.com
-# Web UI (same agent process, TCP — not the DNS UDP port):
-#   open http://127.0.0.1:8787
-```
-
-Interactive menu: `go run ./cmd/ctl menu` (setup, run, view config, ifaces, default-path, service).
-
-Without copying the example:
-
-```bash
-go run ./cmd/ctl -config configs/discord.config.yaml run
-```
-
-Env: `GENESIS_CONFIG`, `GENESIS_LISTEN`, `GENESIS_UI` (Web UI bind; `off` disables).
-
-### Local Web UI
-
-When the agent runs, it also serves a simple localhost UI (TCP, default `127.0.0.1:8787`) for iface overview, a small traffic-path animation (apps → CONFIG/KERNEL iface), and default-path edits. DNS stays on UDP `:5553` — different protocol, separate listener.
-
-```bash
-go run ./cmd/agent -config configs/local.yaml
-# browser → http://127.0.0.1:8787
-```
-
-Stop foreground agent with **Ctrl-C**. Cleanup policy rules / Mode B: `./scripts/host-cleanup.sh`.
-
----
-
-## Run as a systemd service
-
-Like Tailscale: daemon in the background, `ctl` for up / down / apply.
-
-Preferred:
+## Install
 
 ```bash
 sudo make install ENABLE=1
-# Web UI: http://127.0.0.1:8787  (first-boot blank config; no hard-coded ifaces)
-./scripts/host-resolved-modeb.sh install 5553   # optional
-genesis-ctl apply                               # after YAML edits outside the UI
 ```
 
-Operator commands:
+This installs to `/usr/local`, writes a blank `/etc/genesis/config.yaml` if none exists, and starts `genesis.service`. Open `http://127.0.0.1:8787` to pick a default interface and add rules, or import the Discord example.
 
-| Command | Meaning |
+Check it:
+
+```bash
+genesis-ctl status
+```
+
+```
+config:   /etc/genesis/config.yaml
+web ui:   http://127.0.0.1:8787 (reachable)
+dns:      udp 127.0.0.1:5553
+pins:     netlink
+default:  eno1 (mode netlink)
+rules:    1
+service:  genesis.service active
+```
+
+Uninstall: `sudo make uninstall` (add `PURGE=1` to also remove `/etc/genesis`).
+
+## Configuration
+
+One YAML file for agent settings and rules.
+
+```yaml
+version: 1
+
+agent:
+  listen: 127.0.0.1:5553       # DNS stub (UDP)
+  ui_listen: 127.0.0.1:8787    # Web UI (TCP), "off" disables
+  pins: auto                   # auto | dry-run | netlink | noop
+  default_path_mode: off       # auto | dry-run | netlink | off
+  dns_upstream: 1.1.1.1
+
+defaults:                      # used when a rule leaves a field out
+  dns: 1.1.1.1
+  interface: auto
+  pin_connections: true
+  on_iface_down: fail_closed   # fail_closed | fail_open
+
+default_path:                  # where unmatched IPv4 traffic goes
+  interface: eno1              # interface name, "auto", or "" for off
+  on_iface_down: fail_closed
+
+rules:                         # first match wins
+  - name: discord
+    match:
+      domains: [discord.com, "*.discord.com"]
+      ips: []                  # IPv4 or CIDR
+    dns: 1.1.1.1
+    interface: CloudflareWARP
+```
+
+| Section | Purpose |
 |---------|---------|
-| `genesis-ctl up` | `systemctl start genesis` |
-| `genesis-ctl down` | stop |
-| `genesis-ctl restart` | restart |
-| `genesis-ctl apply` | hot-reload config (**SIGHUP**) after editing YAML |
-| `genesis-ctl service-status` | status |
+| `agent` | Listen addresses and how routes are applied |
+| `defaults` | Values inherited by rules |
+| `default_path` | Catch-all interface for traffic no rule matched |
+| `rules` | Domain / IP matches sent to a specific interface |
 
-(`go run ./cmd/ctl …` works the same from a git checkout.)
+`pins` and `default_path_mode`:
 
-Details: [`docs/service.md`](docs/service.md). Fedora RPM: [`packaging/fedora/README.md`](packaging/fedora/README.md).
+- `netlink`: install policy routes (needs `CAP_NET_ADMIN`)
+- `dry-run`: log the routes, change nothing
+- `auto`: `netlink` if permitted, otherwise `dry-run`
+- `off` / `noop`: disabled
 
----
+Config location:
 
-## Discord example (checklist)
+- Service: `/etc/genesis/config.yaml`
+- Foreground: `-config PATH`, then `$GENESIS_CONFIG`, `configs/local.yaml`, `~/.config/genesis/config.yaml`
 
-1. Config: `cp configs/discord.config.yaml configs/local.yaml` **or** `-config configs/discord.config.yaml`
-2. Edit `eno1` / `CloudflareWARP` if needed (`ctl ifaces`)
-3. `pins: netlink`, `default_path_mode: netlink`, `default_path.interface: eno1`
-4. Mode B + disable browser DoH
-5. `ctl run` or systemd `ctl up`
-6. Agent log should show `pin install … via CloudflareWARP` for `discord.com` **and** CDN hosts (`*.discordapp.com`, `*.discord.gg`, …)
+Environment overrides: `GENESIS_CONFIG`, `GENESIS_LISTEN`, `GENESIS_UI`.
 
-Full field / setup reference: [`docs/ctl-manual.md`](docs/ctl-manual.md).
+Example configs:
 
----
+- `configs/default.config.yaml`: blank, used on first install
+- `configs/discord.config.yaml`: Discord over Cloudflare WARP, everything else over `eno1`
+
+Full field reference: [docs/ctl-manual.md](docs/ctl-manual.md).
+
+## genesis-ctl
+
+| Command | Description |
+|---------|-------------|
+| `genesis-ctl status` | Config path, Web UI address, DNS listen, service state |
+| `genesis-ctl service-status` | Web UI / DNS addresses and `systemctl status` |
+| `genesis-ctl up` / `down` / `restart` | Start, stop, restart the service |
+| `genesis-ctl apply` | Reload config after editing the YAML by hand |
+| `genesis-ctl ifaces` | List interfaces |
+| `genesis-ctl menu` | Interactive setup |
+
+## Run without installing
+
+```bash
+cp configs/discord.config.yaml configs/local.yaml   # edit interface names
+go run ./cmd/ctl -config configs/local.yaml run
+```
+
+Test DNS: `dig @127.0.0.1 -p 5553 discord.com A`
+
+To route selected domains from the whole system through the agent, enable systemd-resolved split DNS:
+
+```bash
+./scripts/host-resolved-modeb.sh install 5553
+```
+
+Undo routes and split DNS: `./scripts/host-cleanup.sh`
 
 ## Safety
 
-- Owned tables **18000–18999**; pin prio **5000**; default-path **5100** (below typical WARP ~5209)
-- Never edits main-table default; never toggles links
-- Prefer `ctl pin dry-run` / `default-path dry-run` before live netlink
+- Uses routing tables 18000–18999, rule priority 5000 (pins) and 5100 (default path).
+- Does not modify the main routing table or bring links up/down.
 
----
-
-## Docker demos (host routing untouched)
+## Fedora RPM
 
 ```bash
-make demo-docker
-make demo-docker-split
+make rpm
 ```
 
----
-
-## Layout
-
-```
-cmd/agent cmd/ctl cmd/verify
-internal/appconfig rules doctor dnsstub ifacedns netinfo pathpin
-configs/          # default.config.yaml (first-boot), discord example; local.yaml gitignored
-examples/         # rules-only demos (docker, pin dry-run, example pack)
-deploy/systemd/   # genesis.service.in (+ generated genesis.service)
-packaging/fedora/ # RPM spec (same make install stage)
-docs/
-scripts/          # check-deps, Mode B, host-try, cleanup
-```
+See [packaging/fedora/README.md](packaging/fedora/README.md).
