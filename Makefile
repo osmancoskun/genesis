@@ -89,14 +89,15 @@ install: check-deps-install build
 	install -m 644 configs/default.config.yaml $(DESTDIR)$(SHAREDIR)/default.config.yaml
 	install -m 644 configs/discord.config.yaml $(DESTDIR)$(SHAREDIR)/discord.config.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)
+	install -d $(DESTDIR)/etc/systemd/resolved.conf.d
 	@if [ ! -e $(DESTDIR)$(SYSCONFDIR)/config.yaml ]; then \
 		install -m 644 configs/default.config.yaml $(DESTDIR)$(SYSCONFDIR)/config.yaml; \
 		echo "installed $(DESTDIR)$(SYSCONFDIR)/config.yaml (blank first-boot; configure via Web UI :8787)"; \
 	else \
 		echo "keeping existing $(DESTDIR)$(SYSCONFDIR)/config.yaml"; \
 	fi
+	# Avoid user_home_t labels from cp -a (blocks systemd unit writes under Enforcing).
 	@if [ -z "$(DESTDIR)" ]; then \
-		# Avoid user_home_t labels from cp -a (blocks systemd unit writes under Enforcing).
 		if command -v restorecon >/dev/null 2>&1; then restorecon -RF $(SYSCONFDIR) || true; fi; \
 		systemctl daemon-reload || true; \
 		echo "installed unit $(UNITDIR)/$(UNIT_NAME)"; \

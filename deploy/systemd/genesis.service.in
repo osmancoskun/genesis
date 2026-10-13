@@ -28,8 +28,8 @@ NoNewPrivileges=true
 RuntimeDirectory=genesis
 
 ProtectSystem=strict
-# /etc/systemd/resolved.conf.d: Mode B Domains sync on apply / Web UI add-rule
-ReadWritePaths=/run/genesis /etc/genesis /etc/systemd/resolved.conf.d
+# Mode B Domains sync writes drop-ins under resolved.conf.d ("-" = ignore if missing).
+ReadWritePaths=/run/genesis /etc/genesis -/etc/systemd/resolved.conf.d
 ProtectHome=true
 PrivateTmp=true
 

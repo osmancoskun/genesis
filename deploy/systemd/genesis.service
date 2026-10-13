@@ -28,7 +28,8 @@ NoNewPrivileges=true
 RuntimeDirectory=genesis
 
 ProtectSystem=strict
-ReadWritePaths=/run/genesis /etc/genesis
+# Mode B Domains sync writes drop-ins under resolved.conf.d ("-" = ignore if missing).
+ReadWritePaths=/run/genesis /etc/genesis -/etc/systemd/resolved.conf.d
 ProtectHome=true
 PrivateTmp=true
 
