@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"dnsredirector/internal/appconfig"
 )
 
 const systemdUnit = "genesis.service"
@@ -64,8 +66,14 @@ func serviceApply() error {
 }
 
 func serviceStatus() error {
+	if p := statusConfigPath(); p != "" {
+		if f, err := appconfig.LoadFile(p); err == nil {
+			printEndpoints(f)
+			fmt.Println()
+		}
+	}
 	if unitInstalled() {
-		_ = runSystemctl("status", systemdUnit)
+		_ = runSystemctl("status", "--no-pager", systemdUnit)
 		return nil
 	}
 	pid, path, err := readPIDFile()

@@ -90,23 +90,10 @@ func main() {
 		}
 		printRules(cfg)
 	case "status":
-		path := appconfig.FindExisting()
-		if path == "" {
-			fmt.Println("status: no config found — run: go run ./cmd/ctl setup")
-			fmt.Printf("looked in: %s\n", stringsJoin(appconfig.CandidatePaths()))
-			return
-		}
-		f, err := appconfig.LoadFile(path)
-		if err != nil {
+		if err := runStatus(); err != nil {
 			fmt.Fprintf(os.Stderr, "status: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("config: %s\n", path)
-		fmt.Printf("listen: %s  pins: %s  default_path_mode: %s\n",
-			f.EffectiveListen(), f.Agent.Pins, f.Agent.DefaultPathMode)
-		fmt.Println("agent not queried yet (no control socket in MVP)")
-		fmt.Println("defaults: iface-down=fail_closed; ipv6=v4-first; doh=warn-only")
-		fmt.Println("coexistence: docs/resolved-coexistence.md")
 	case "pin":
 		if err := runPin(args[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "pin: %v\n", err)
@@ -328,7 +315,7 @@ Usage:
   go run ./cmd/ctl ifaces
   go run ./cmd/ctl doctor
   go run ./cmd/ctl rules [path]
-  go run ./cmd/ctl status
+  go run ./cmd/ctl status                      # config, web ui address, dns listen, service
   go run ./cmd/ctl pin check
   go run ./cmd/ctl pin dry-run --dst 192.0.2.10 --iface eno1
   go run ./cmd/ctl default-path check
@@ -343,6 +330,7 @@ Examples:
 Env (same as -config / -listen on agent):
   GENESIS_CONFIG   config file path (default configs/local.yaml)
   GENESIS_LISTEN   override agent listen (default 127.0.0.1:5553)
+  GENESIS_UI       override web ui listen (default 127.0.0.1:8787, off disables)
 `)
 }
 
