@@ -389,7 +389,8 @@ main {
   letter-spacing: 0.06em;
   color: var(--accent);
 }
-.rule-card { display: grid; gap: 0.2rem; }
+.rule-card { display: grid; gap: 0.2rem; align-items: start; }
+.rule-card .viz-items { margin-top: 0.3rem; }
 .settings-grid {
   grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
 }

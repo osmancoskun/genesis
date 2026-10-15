@@ -471,6 +471,33 @@ function fillDpIfaceSelect(rows, selected) {
   sel.value = keep;
 }
 
+function uniqueKeepOrder(items) {
+  const out = [];
+  const seen = new Set();
+  for (const item of items || []) {
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+function groupRulesByName(rules) {
+  const groups = [];
+  const index = new Map();
+  for (const rule of rules || []) {
+    const name = (rule.name || "").trim() || "(unnamed)";
+    let group = index.get(name);
+    if (!group) {
+      group = { name, rules: [] };
+      index.set(name, group);
+      groups.push(group);
+    }
+    group.rules.push(rule);
+  }
+  return groups;
+}
+
 function renderRules(cfg) {
   const list = el("rules-list");
   list.replaceChildren();
@@ -479,20 +506,49 @@ function renderRules(cfg) {
     list.textContent = "No pin rules yet.";
     return;
   }
-  for (const rule of rules) {
+  for (const group of groupRulesByName(rules)) {
     const card = document.createElement("div");
     card.className = "rule-card";
     const name = document.createElement("div");
     name.className = "name";
-    name.textContent = rule.name || "(unnamed)";
-    const meta = document.createElement("div");
-    meta.className = "meta-line";
-    const parts = ["→ " + rule.interface];
-    if (rule.domains && rule.domains.length) parts.push(rule.domains.length + " domain(s)");
-    if (rule.ips && rule.ips.length) parts.push(rule.ips.length + " ip(s)");
-    if (rule.dns) parts.push("dns " + rule.dns);
-    meta.textContent = parts.join(" · ");
-    card.append(name, meta);
+    name.textContent = group.name;
+
+    const domains = uniqueKeepOrder(group.rules.flatMap((rule) => rule.domains || []));
+    const ips = uniqueKeepOrder(group.rules.flatMap((rule) => rule.ips || []));
+    const routes = [];
+    const seenRoute = new Set();
+    for (const rule of group.rules) {
+      const key = (rule.interface || "") + "\0" + (rule.dns || "");
+      if (seenRoute.has(key)) continue;
+      seenRoute.add(key);
+      routes.push(rule);
+    }
+
+    card.appendChild(name);
+    for (const rule of routes) {
+      const meta = document.createElement("div");
+      meta.className = "meta-line";
+      const parts = ["→ " + (rule.interface || "(auto)")];
+      if (rule.dns) parts.push("dns " + rule.dns);
+      if (routes.length === 1) {
+        if (domains.length) parts.push(domains.length + " domain(s)");
+        if (ips.length) parts.push(ips.length + " ip(s)");
+      }
+      meta.textContent = parts.join(" · ");
+      card.appendChild(meta);
+    }
+    if (domains.length) {
+      const body = document.createElement("div");
+      body.className = "viz-items";
+      fillItemList(body, domains, 6);
+      card.appendChild(body);
+    }
+    if (ips.length) {
+      const body = document.createElement("div");
+      body.className = "viz-items";
+      fillItemList(body, ips, 4);
+      card.appendChild(body);
+    }
     list.appendChild(card);
   }
 }
