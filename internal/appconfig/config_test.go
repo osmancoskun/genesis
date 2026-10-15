@@ -146,3 +146,29 @@ func TestLoadShippedDefaultConfig(t *testing.T) {
 		t.Fatalf("pins: %q", f.Agent.Pins)
 	}
 }
+
+func TestParseCoalescesSameRules(t *testing.T) {
+	f, err := Parse([]byte(`
+version: 1
+rules:
+  - name: bilgem-domains
+    match:
+      domains: ["jira.bilgem.gov.tr"]
+    dns: 10.222.12.11
+    interface: vpn0
+  - name: bilgem-domains
+    match:
+      domains: ["bitbucket.bilgem.gov.tr"]
+    dns: 10.222.12.11
+    interface: vpn0
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Rules) != 1 {
+		t.Fatalf("rules: %d", len(f.Rules))
+	}
+	if len(f.Rules[0].Match.Domains) != 2 {
+		t.Fatalf("domains: %#v", f.Rules[0].Match.Domains)
+	}
+}

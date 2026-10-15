@@ -2,6 +2,7 @@ package rules
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -105,5 +106,46 @@ rules:
 	}
 	if !cfg.DefaultPathEnabled() || cfg.DefaultPath.Interface != "auto" {
 		t.Fatalf("default_path: %+v", cfg.DefaultPath)
+	}
+}
+
+func TestCoalesceSamePolicy(t *testing.T) {
+	cfg, err := Parse([]byte(`
+version: 1
+rules:
+  - name: discord-com
+    match:
+      domains: ["discord.com"]
+    dns: 1.1.1.1
+    interface: CloudflareWARP
+  - name: bilgem-domains
+    match:
+      domains: ["jira.bilgem.gov.tr", "*.jira.bilgem.gov.tr"]
+    dns: 10.222.12.11
+    interface: vpn0
+  - name: bilgem-domains
+    match:
+      domains: ["bitbucket.bilgem.gov.tr"]
+    dns: 10.222.12.11
+    interface: vpn0
+  - name: bilgem-domains
+    match:
+      domains: ["jira.bilgem.gov.tr", "git.bilgem.gov.tr"]
+    dns: 1.1.1.1
+    interface: vpn0
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Coalesce(cfg.Rules)
+	if len(got) != 3 {
+		t.Fatalf("rules: %d", len(got))
+	}
+	if got[0].Name != "discord-com" || got[1].Name != "bilgem-domains" || got[2].DNS != "1.1.1.1" {
+		t.Fatalf("order: %#v", got)
+	}
+	want := []string{"jira.bilgem.gov.tr", "*.jira.bilgem.gov.tr", "bitbucket.bilgem.gov.tr"}
+	if strings.Join(got[1].Match.Domains, ",") != strings.Join(want, ",") {
+		t.Fatalf("domains: %#v", got[1].Match.Domains)
 	}
 }

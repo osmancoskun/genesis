@@ -154,7 +154,7 @@ func (f *File) Normalize() error {
 	}
 	f.Defaults = rc.Defaults
 	f.DefaultPath = rc.DefaultPath
-	f.Rules = rc.Rules
+	f.Rules = rules.Coalesce(rc.Rules)
 	return nil
 }
 

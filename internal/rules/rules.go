@@ -209,3 +209,73 @@ func ipInSpec(ip net.IP, spec string) bool {
 func (c *Config) DefaultPathEnabled() bool {
 	return c != nil && strings.TrimSpace(c.DefaultPath.Interface) != ""
 }
+
+// Coalesce folds rules that share a name and the same routing policy into the
+// earliest rule, appending domains and IPs. A same name with a different
+// interface, DNS, pin, or iface-down policy stays separate.
+func Coalesce(in []Rule) []Rule {
+	if len(in) < 2 {
+		return in
+	}
+	out := make([]Rule, 0, len(in))
+	at := map[string]int{}
+	for _, r := range in {
+		key := policyKey(r)
+		if i, ok := at[key]; ok {
+			out[i].Match.Domains = appendUnique(out[i].Match.Domains, r.Match.Domains)
+			out[i].Match.IPs = appendUnique(out[i].Match.IPs, r.Match.IPs)
+			continue
+		}
+		at[key] = len(out)
+		out = append(out, cloneRule(r))
+	}
+	return out
+}
+
+func policyKey(r Rule) string {
+	pin := "nil"
+	if r.PinConnections != nil {
+		if *r.PinConnections {
+			pin = "1"
+		} else {
+			pin = "0"
+		}
+	}
+	return strings.Join([]string{
+		r.Name,
+		r.DNS,
+		r.Interface,
+		string(r.OnIfaceDown),
+		r.Action,
+		pin,
+	}, "\x00")
+}
+
+func cloneRule(r Rule) Rule {
+	r.Match.Domains = append([]string(nil), r.Match.Domains...)
+	r.Match.IPs = append([]string(nil), r.Match.IPs...)
+	if r.PinConnections != nil {
+		v := *r.PinConnections
+		r.PinConnections = &v
+	}
+	return r
+}
+
+func appendUnique(dst, src []string) []string {
+	seen := make(map[string]struct{}, len(dst))
+	for _, s := range dst {
+		seen[s] = struct{}{}
+	}
+	for _, s := range src {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		dst = append(dst, s)
+	}
+	return dst
+}
