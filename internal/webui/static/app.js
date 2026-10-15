@@ -213,9 +213,15 @@ function ifaceRoles(name, status, cfg) {
   return roles;
 }
 
-function makeMatchCard(g) {
+function ifaceUp(ifaces, name) {
+  const row = (ifaces || []).find((r) => r.name === name);
+  return !!(row && row.up);
+}
+
+function makeMatchCard(g, available) {
   const card = document.createElement("div");
   card.className = "viz-node viz-match kind-" + g.kind;
+  if (!available) card.classList.add("is-ignored");
   card.dataset.wireTo = "iface:" + g.iface;
   const kind = document.createElement("span");
   kind.className = "viz-kind";
@@ -228,7 +234,7 @@ function makeMatchCard(g) {
   fillItemList(body, g.items, 2);
   const arrow = document.createElement("span");
   arrow.className = "viz-to";
-  arrow.textContent = "→ " + g.iface;
+  arrow.textContent = available ? "→ " + g.iface : "ignored · " + g.iface;
   card.append(kind, title, body, arrow);
   return card;
 }
@@ -296,7 +302,7 @@ function renderViz(status, cfg, ifaces) {
       textContent: "No domain / IP pins",
     }));
   } else {
-    for (const g of groups) nest.appendChild(makeMatchCard(g));
+    for (const g of groups) nest.appendChild(makeMatchCard(g, ifaceUp(ifaces, g.iface)));
   }
   allBox.appendChild(nest);
   matchesEl.appendChild(allBox);
@@ -307,6 +313,7 @@ function renderViz(status, cfg, ifaces) {
     node.dataset.wireId = "iface:" + row.name;
     if (row.name === status.config_iface) node.classList.add("is-default");
     if (row.name === status.kernel_iface) node.classList.add("is-kernel");
+    if (!row.up) node.classList.add("is-down");
     const roles = ifaceRoles(row.name, status, cfg);
     node.append(
       Object.assign(document.createElement("span"), { className: "viz-title mono", textContent: row.name }),
@@ -346,7 +353,7 @@ function drawWires(status, groups) {
     const r = node.getBoundingClientRect();
     return { x: r.left - vr.left, y: r.top + r.height / 2 - vr.top };
   }
-  function addFlow(fromEl, toEl, tone, delay) {
+  function addFlow(fromEl, toEl, tone, delay, ignored) {
     if (!fromEl || !toEl) return;
     const a = centerRight(fromEl);
     const b = centerLeft(toEl);
@@ -354,11 +361,31 @@ function drawWires(status, groups) {
     const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", d);
-    path.setAttribute("class", "wire wire-" + tone);
+    path.setAttribute("class", ignored ? "wire wire-ignored" : "wire wire-" + tone);
     path.setAttribute("fill", "none");
     svg.appendChild(path);
+    if (ignored) {
+      const cx = (a.x + b.x) / 2;
+      const cy = (a.y + b.y) / 2;
+      const s = 4.5;
+      const mark = document.createElementNS(ns, "g");
+      mark.setAttribute("class", "wire-break");
+      for (const [x1, y1, x2, y2] of [
+        [cx - s, cy - s, cx + s, cy + s],
+        [cx - s, cy + s, cx + s, cy - s],
+      ]) {
+        const line = document.createElementNS(ns, "line");
+        line.setAttribute("x1", String(x1));
+        line.setAttribute("y1", String(y1));
+        line.setAttribute("x2", String(x2));
+        line.setAttribute("y2", String(y2));
+        mark.appendChild(line);
+      }
+      svg.appendChild(mark);
+      return;
+    }
     const packet = document.createElementNS(ns, "circle");
-    packet.setAttribute("r", "4.5");
+    packet.setAttribute("r", "7");
     packet.setAttribute("class", "wire-packet wire-packet-" + tone);
     const motion = document.createElementNS(ns, "animateMotion");
     motion.setAttribute("dur", (tone === "ether" ? 1.45 : 2.05) + "s");
@@ -374,7 +401,9 @@ function drawWires(status, groups) {
   let i = 0;
   el("viz-matches").querySelectorAll(".viz-match").forEach((card) => {
     const to = (card.dataset.wireTo || "").replace(/^iface:/, "");
-    addFlow(card, ifaceNode(to), card.classList.contains("kind-ip") ? "ip" : "domain", i * 0.28);
+    const node = ifaceNode(to);
+    const ignored = !!(node && node.classList.contains("is-down"));
+    addFlow(card, node, card.classList.contains("kind-ip") ? "ip" : "domain", i * 0.28, ignored);
     i += 1;
   });
   const allNode = el("node-all-websites");
@@ -382,7 +411,10 @@ function drawWires(status, groups) {
     || status.config_iface
     || status.kernel_iface
     || "";
-  if (catchTo) addFlow(allNode, ifaceNode(catchTo), "ether", 0.05);
+  if (catchTo) {
+    const node = ifaceNode(catchTo);
+    addFlow(allNode, node, "ether", 0.05, !!(node && node.classList.contains("is-down")));
+  }
 }
 
 function renderIfaces(rows, selected) {

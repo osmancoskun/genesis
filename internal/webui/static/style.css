@@ -233,10 +233,25 @@ main {
   z-index: 0;
   overflow: visible;
 }
-.wire { stroke-width: 1.5; stroke-dasharray: 4 6; opacity: 0.85; }
+.wire { stroke-width: 2.75; stroke-dasharray: none; opacity: 0.9; }
 .wire-domain { stroke: var(--domain); }
 .wire-ip { stroke: var(--ip); }
-.wire-ether { stroke: var(--ether); stroke-width: 2; stroke-dasharray: 2 5; }
+.wire-ether { stroke: var(--ether); }
+.wire-ignored {
+  stroke: var(--danger);
+  stroke-width: 2.75;
+  stroke-dasharray: 6 7;
+  animation: wire-pulse 1.8s ease-in-out infinite;
+}
+.wire-break {
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+@keyframes wire-pulse {
+  0%, 100% { stroke-opacity: 0.55; }
+  50% { stroke-opacity: 1; }
+}
 .wire-packet-domain { fill: var(--domain); }
 .wire-packet-ip { fill: var(--ip); }
 .wire-packet-ether { fill: var(--ether); }
@@ -263,6 +278,17 @@ main {
 }
 .viz-match.kind-domain { border-color: color-mix(in srgb, var(--domain) 55%, var(--line)); }
 .viz-match.kind-ip { border-color: color-mix(in srgb, var(--ip) 55%, var(--line)); }
+.viz-match.is-ignored,
+.viz-iface.is-down {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger) 7%, #10161d);
+}
+.viz-match.is-ignored .viz-to,
+.viz-iface.is-down .viz-roles,
+.viz-iface.is-down .viz-sub { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .wire-ignored { animation: none; stroke-opacity: 0.85; }
+}
 .viz-iface.is-default {
   border-color: var(--ether);
   background: color-mix(in srgb, var(--ether) 16%, #10161d);

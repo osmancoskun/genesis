@@ -37,7 +37,7 @@ type Hooks struct {
 	AddRule func(in RuleInput) error
 	// SaveSettings updates agent listen/pins/ui/upstream fields.
 	SaveSettings func(listen, uiListen, pins, dpMode, dnsUpstream string) error
-	DNSListen string
+	DNSListen    string
 }
 
 // Server is the local Web UI + JSON API (localhost TCP).
@@ -161,11 +161,16 @@ func buildSetupStatus(f *appconfig.File, kernel string) map[string]any {
 		incomplete = true
 		reasons = append(reasons, "blank_config")
 	}
+	seenIface := map[string]struct{}{}
 	checkIface := func(name string) {
 		name = strings.TrimSpace(name)
 		if name == "" || name == "auto" {
 			return
 		}
+		if _, ok := seenIface[name]; ok {
+			return
+		}
+		seenIface[name] = struct{}{}
 		if _, err := net.InterfaceByName(name); err != nil {
 			missing = append(missing, name)
 		}
