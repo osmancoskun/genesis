@@ -14,7 +14,14 @@ import (
 // policy rule. It never edits the main-table default route or toggles links.
 // Connected IPv4 prefixes already in main get preserve rules (lookup main) so LAN
 // stays reachable before the catch-all.
-func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
+func (a *NetlinkApplier) ApplyDefaultPath(iface string) (err error) {
+	defer func() {
+		if err == nil {
+			rememberDefaultIface(iface)
+		}
+	}()
+	kernelMu.Lock()
+	defer kernelMu.Unlock()
 	if iface == "lo" {
 		return fmt.Errorf("%w: refusing loopback for default path", ErrRefused)
 	}
@@ -31,11 +38,13 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
 		// Ethernet defaults need a next-hop. scope-link 0.0.0.0/0 blackholes the Internet.
 		return fmt.Errorf("%w: no IPv4 gateway found for %q in main (refusing on-link default)", ErrRefused, iface)
 	}
-	preserve := mainConnectedIPv4()
+	band := CurrentBand()
+	preserve := mainConnectedIPv4(band.Preserve)
 	plan, err := BuildDefaultPathPlan(iface, attrs.Index, gw, preserve)
 	if err != nil {
 		return err
 	}
+	plan.Priority = band.DefaultPath
 
 	dstDefault := &net.IPNet{IP: net.IPv4zero.To4(), Mask: net.CIDRMask(0, 32)}
 	route := &netlink.Route{
@@ -68,12 +77,12 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
 		rule.Dst = pr.Dst
 		if err := netlink.RuleAdd(rule); err != nil {
 			if isPerm(err) {
-				_ = a.RemoveDefaultPath(iface)
+				_ = removeDefaultPathLocked(iface)
 				return FormatPrivError(err)
 			}
 			// Duplicate rule is fine on re-apply.
 			if !isExists(err) {
-				_ = a.RemoveDefaultPath(iface)
+				_ = removeDefaultPathLocked(iface)
 				return fmt.Errorf("pathpin: preserve rule add: %w", err)
 			}
 		}
@@ -91,7 +100,7 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
 	catch.Mask = &mask
 	catch.Invert = true
 	if err := netlink.RuleAdd(catch); err != nil {
-		_ = a.RemoveDefaultPath(iface)
+		_ = removeDefaultPathLocked(iface)
 		if isPerm(err) {
 			return FormatPrivError(err)
 		}
@@ -105,6 +114,13 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) error {
 
 // RemoveDefaultPath removes owned default-path rules/routes for iface's table.
 func (a *NetlinkApplier) RemoveDefaultPath(iface string) error {
+	defer clearDefaultIface(iface)
+	kernelMu.Lock()
+	defer kernelMu.Unlock()
+	return removeDefaultPathLocked(iface)
+}
+
+func removeDefaultPathLocked(iface string) error {
 	_ = deleteOwnedDefaultPathRules()
 	route := &netlink.Route{
 		Dst:   &net.IPNet{IP: net.IPv4zero.To4(), Mask: net.CIDRMask(0, 32)},
@@ -121,7 +137,7 @@ func (a *NetlinkApplier) RemoveDefaultPath(iface string) error {
 
 const unixTableMain = 254
 
-func mainConnectedIPv4() []PreserveSpec {
+func mainConnectedIPv4(priority int) []PreserveSpec {
 	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
 	if err != nil {
 		return nil
@@ -154,7 +170,7 @@ func mainConnectedIPv4() []PreserveSpec {
 			IP:   append(net.IP(nil), ip4...),
 			Mask: append(net.IPMask(nil), r.Dst.Mask...),
 		}
-		out = append(out, PreserveSpec{Dst: n, Priority: MainPreservePref})
+		out = append(out, PreserveSpec{Dst: n, Priority: priority})
 	}
 	return out
 }
@@ -169,12 +185,16 @@ func deleteOwnedDefaultPathRules() error {
 	}
 	for i := range rules {
 		r := rules[i]
-		switch r.Priority {
-		case DefaultPathPref:
-			if r.Table == DefaultPathTable {
-				_ = netlink.RuleDel(&r)
-			}
-		case MainPreservePref:
+		if r.Table == DefaultPathTable {
+			_ = netlink.RuleDel(&r)
+			continue
+		}
+		// Preserve rules are unmarked "to <connected> lookup main". WARP and
+		// Tailscale rules carry an fwmark, so they are not deleted here.
+		// Priority changes when we slide in front of WARP; match the shape,
+		// not a single static priority, or the previous band leaks.
+		if r.Table == unixTableMain && r.Mark == 0 && !r.Invert &&
+			r.Dst != nil && r.Dst.IP != nil && r.Priority > 0 && r.Priority < 32766 {
 			_ = netlink.RuleDel(&r)
 		}
 	}

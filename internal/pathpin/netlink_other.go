@@ -28,3 +28,6 @@ func (a *NetlinkApplier) ApplyDefaultPath(string) error {
 func (a *NetlinkApplier) RemoveDefaultPath(string) error {
 	return FormatPrivError(fmt.Errorf("netlink default-path requires Linux"))
 }
+
+// SweepPinPriorities is a no-op off Linux.
+func SweepPinPriorities(int) error { return nil }

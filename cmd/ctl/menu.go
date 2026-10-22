@@ -230,6 +230,7 @@ func menuSetDefaultPath(in *bufio.Reader) error {
 		if err != nil {
 			fmt.Printf("dry-run plan error: %v\n", err)
 		} else {
+			plan.Priority = pathpin.CurrentBand().DefaultPath
 			fmt.Println("planned ops:")
 			fmt.Println(plan.Describe())
 		}
@@ -245,7 +246,8 @@ func menuSetDefaultPath(in *bufio.Reader) error {
 
 	if f.DefaultPath.Interface != "" && (f.Agent.DefaultPathMode == "netlink" || f.Agent.DefaultPathMode == "auto") {
 		fmt.Println()
-		fmt.Println("WARNING: live apply can break Cloudflare WARP (prio 5100 < WARP ~5209).")
+		fmt.Println("Live apply installs the catch-all after WARP's fwmark rule when WARP is connected.")
+		fmt.Println("WARP drops packets that leave on any other device, so overtaking it blacks out IPv4.")
 		fmt.Print("Apply default-path to kernel now? [y/N]: ")
 		ans, err := in.ReadString('\n')
 		if err != nil {

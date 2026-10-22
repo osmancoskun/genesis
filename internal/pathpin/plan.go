@@ -7,13 +7,11 @@ import (
 	"strings"
 )
 
-// Owned routing-policy ranges. Only these tables/priorities are written or deleted.
-// Rule priorities sit below common Cloudflare WARP policy rules (~5209) so pins and
-// default-path win over WARP's catch-all when we intentionally steer traffic.
+// Owned routing-policy ranges. Only these tables are written or deleted.
+// Priorities are not fixed: see PriorityBand. Static pin priority is RulePref.
 const (
 	TableBase = 18000
 	TableSpan = 1000 // tables 18000–18999
-	RulePref  = 5000 // per-destination pins (before WARP ~5209)
 )
 
 // Plan is the exact kernel intent for one pin (used by dry-run and netlink apply).

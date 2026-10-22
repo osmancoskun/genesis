@@ -454,6 +454,10 @@ function renderIfaces(rows, selected) {
     tb.appendChild(tr);
   }
 
+  const warpNote = el("warp-note");
+  if (warpNote) {
+    warpNote.hidden = !rows.some((row) => row.name === "CloudflareWARP");
+  }
   fillDpIfaceSelect(rows, selected);
 }
 

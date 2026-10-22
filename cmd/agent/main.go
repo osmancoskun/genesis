@@ -85,9 +85,12 @@ func main() {
 					log.Printf("default-path apply %s via %s: %v — continuing (fix via Web UI)", dpIface, dpName, err)
 					dpIface = ""
 				} else {
-					log.Printf("default-path applied iface=%s mode=%s", dpIface, dpName)
+					band := pathpin.CurrentBand()
+					log.Printf("default-path applied iface=%s mode=%s priority=%d warp=%d", dpIface, dpName, band.DefaultPath, band.Warp)
 				}
 				defer func() {
+					cancel()
+					pathpin.HaltPolicy()
 					if dpApplier != nil && dpIface != "" {
 						if err := dpApplier.RemoveDefaultPath(dpIface); err != nil {
 							log.Printf("default-path remove: %v", err)
@@ -99,6 +102,10 @@ func main() {
 	} else if dpMode != "auto" && dpMode != "off" && dpMode != "" {
 		log.Printf("default-path: rules have no default_path.interface; ignoring mode=%s", dpMode)
 	}
+
+	// Re-seat pins and the catch-all if a previous process left them in front of
+	// WARP. The catch-all stays behind WARP; that client drops off-tunnel egress.
+	go pathpin.WatchPolicy(ctx, pinMgr, pathpin.RealignDefaultPath, 2*time.Second)
 
 	srv := &dnsstub.Server{
 		Addr:   listenAddr,

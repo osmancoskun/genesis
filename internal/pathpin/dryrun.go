@@ -27,6 +27,7 @@ func (d *DryRunApplier) Apply(p Pin) error {
 	if err != nil {
 		return err
 	}
+	plan.Priority = CurrentBand().Pins
 	line := "dry-run APPLY: " + plan.Describe()
 	d.mu.Lock()
 	d.log = append(d.log, line)
@@ -40,7 +41,7 @@ func (d *DryRunApplier) Remove(p Pin) error {
 		return fmt.Errorf("%w: IPv4 required", ErrRefused)
 	}
 	line := fmt.Sprintf("dry-run REMOVE: ip rule del to %s/32 priority %d; ip route del %s/32 table %d (iface %s)",
-		p.Dst.To4(), RulePref, p.Dst.To4(), tableForIface(p.Interface), p.Interface)
+		p.Dst.To4(), CurrentBand().Pins, p.Dst.To4(), tableForIface(p.Interface), p.Interface)
 	d.mu.Lock()
 	d.log = append(d.log, line)
 	d.mu.Unlock()
@@ -53,6 +54,8 @@ func (d *DryRunApplier) ApplyDefaultPath(iface string) error {
 	if err != nil {
 		return err
 	}
+	band := CurrentBand()
+	plan.Priority = band.DefaultPath
 	line := "dry-run APPLY default-path: " + plan.Describe()
 	d.mu.Lock()
 	d.log = append(d.log, line)
@@ -62,8 +65,9 @@ func (d *DryRunApplier) ApplyDefaultPath(iface string) error {
 }
 
 func (d *DryRunApplier) RemoveDefaultPath(iface string) error {
+	band := CurrentBand()
 	line := fmt.Sprintf("dry-run REMOVE default-path: ip rule del priority %d (table %d); ip rule del priority %d (preserve main); ip route del default table %d  # iface=%s",
-		DefaultPathPref, DefaultPathTable, MainPreservePref, DefaultPathTable, iface)
+		band.DefaultPath, DefaultPathTable, band.Preserve, DefaultPathTable, iface)
 	d.mu.Lock()
 	d.log = append(d.log, line)
 	d.mu.Unlock()

@@ -26,8 +26,8 @@ type Applier interface {
 // NoopApplier records nothing in the kernel (safe for unprivileged dry-runs).
 type NoopApplier struct{}
 
-func (NoopApplier) Apply(Pin) error             { return nil }
-func (NoopApplier) Remove(Pin) error            { return nil }
+func (NoopApplier) Apply(Pin) error                { return nil }
+func (NoopApplier) Remove(Pin) error               { return nil }
 func (NoopApplier) ApplyDefaultPath(string) error  { return nil }
 func (NoopApplier) RemoveDefaultPath(string) error { return nil }
 
@@ -130,6 +130,21 @@ func (m *Manager) List() []Pin {
 		res = append(res, p)
 	}
 	return res
+}
+
+// Reapply installs every active pin again so a priority-band change replaces
+// kernel rules that were added at the previous priority.
+func (m *Manager) Reapply() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sweepLocked()
+	var first error
+	for _, p := range m.pins {
+		if err := m.applier.Apply(p); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // ExpireNow removes expired pins via the applier.

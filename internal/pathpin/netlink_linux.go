@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -14,8 +15,12 @@ import (
 
 // NetlinkApplier installs /32 destination pins via a dedicated policy-routing table.
 // It never changes the main table default route, never toggles links, and only
-// mutates tables/priorities in the owned ranges (see plan.go).
+// mutates tables in the owned range (see plan.go). Rule priority follows CurrentBand.
 type NetlinkApplier struct{}
+
+// kernelMu serializes rule/route edits so a pin apply and a WARP realign
+// cannot delete each other's rules mid-update.
+var kernelMu sync.Mutex
 
 // NewNetlink returns a live applier. Call ProbeNetAdmin first for a clear error.
 func NewNetlink() *NetlinkApplier {
@@ -70,6 +75,8 @@ func splitLines(s string) []string {
 }
 
 func (a *NetlinkApplier) Apply(p Pin) error {
+	kernelMu.Lock()
+	defer kernelMu.Unlock()
 	if p.Interface == "lo" {
 		return fmt.Errorf("%w: refusing loopback interface for live pins", ErrRefused)
 	}
@@ -90,6 +97,7 @@ func (a *NetlinkApplier) Apply(p Pin) error {
 	if err != nil {
 		return err
 	}
+	plan.Priority = CurrentBand().Pins
 	if !OwnedTable(plan.Table) {
 		return fmt.Errorf("%w: refused non-owned table %d", ErrRefused, plan.Table)
 	}
@@ -131,6 +139,8 @@ func (a *NetlinkApplier) Apply(p Pin) error {
 }
 
 func (a *NetlinkApplier) Remove(p Pin) error {
+	kernelMu.Lock()
+	defer kernelMu.Unlock()
 	if p.Dst == nil || p.Dst.To4() == nil {
 		return fmt.Errorf("%w: IPv4 required", ErrRefused)
 	}
@@ -177,10 +187,7 @@ func deleteOwnedRulesTo(dst net.IP) error {
 	}
 	for i := range rules {
 		r := rules[i]
-		if r.Priority != RulePref {
-			continue
-		}
-		if !OwnedTable(r.Table) {
+		if !OwnedTable(r.Table) || r.Table == DefaultPathTable {
 			continue
 		}
 		if r.Dst == nil || r.Dst.IP == nil {
@@ -189,6 +196,32 @@ func deleteOwnedRulesTo(dst net.IP) error {
 		if r.Dst.IP.Equal(dst) {
 			_ = netlink.RuleDel(&r)
 		}
+	}
+	return nil
+}
+
+// SweepPinPriorities deletes per-destination pin rules whose priority is not keep.
+// The catch-all table is left alone. Called after a band change so orphaned
+// pins from the previous priority cannot keep matching ahead of WARP or behind it.
+func SweepPinPriorities(keep int) error {
+	kernelMu.Lock()
+	defer kernelMu.Unlock()
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		if isPerm(err) {
+			return FormatPrivError(err)
+		}
+		return err
+	}
+	for i := range rules {
+		r := rules[i]
+		if !OwnedTable(r.Table) || r.Table == DefaultPathTable {
+			continue
+		}
+		if r.Dst == nil || r.Dst.IP == nil || r.Priority == keep {
+			continue
+		}
+		_ = netlink.RuleDel(&r)
 	}
 	return nil
 }

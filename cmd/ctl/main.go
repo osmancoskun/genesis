@@ -217,8 +217,10 @@ func runPin(args []string) error {
 			return err
 		}
 		fmt.Println("no kernel changes — planned ops:")
+		band := pathpin.CurrentBand()
+		plan.Priority = band.Pins
 		fmt.Println(plan.Describe())
-		fmt.Printf("owned tables %d–%d; rule priority %d\n", pathpin.TableBase, pathpin.TableBase+pathpin.TableSpan-1, pathpin.RulePref)
+		fmt.Printf("owned tables %d–%d; rule priority %d\n", pathpin.TableBase, pathpin.TableBase+pathpin.TableSpan-1, band.Pins)
 		return nil
 	default:
 		return fmt.Errorf("unknown pin subcommand %q", args[0])
@@ -237,8 +239,18 @@ func runDefaultPath(args []string) error {
 			fmt.Println("safe default: ctl default-path dry-run --iface <vpn-or-nic>")
 			return nil
 		}
+		band := pathpin.CurrentBand()
 		fmt.Println("default-path check: CAP_NET_ADMIN appears available")
-		fmt.Println("live apply uses owned table", pathpin.DefaultPathTable, "priority", pathpin.DefaultPathPref)
+		fmt.Printf("live apply uses owned table %d, catch-all priority %d\n", pathpin.DefaultPathTable, band.DefaultPath)
+		if band.Warp > 0 {
+			fmt.Printf("WARP fwmark rule is at %d; catch-all stays after it (WARP drops off-tunnel egress)\n", band.Warp)
+			fmt.Println("WARP split tunnel is not changed. To keep unmatched traffic on the default path while WARP is up, add the excludes yourself:")
+			fmt.Println("  warp-cli tunnel ip add-range 0.0.0.0/1")
+			fmt.Println("  warp-cli tunnel ip add-range 128.0.0.0/1")
+			fmt.Println("  warp-cli tunnel ip add-range ::/1")
+			fmt.Println("  warp-cli tunnel ip add-range 8000::/1")
+		}
+		fmt.Println("other VPN catch-alls are moved behind the default path; only pinned destinations use those interfaces")
 		fmt.Println("never edits main-table default; never toggles VPN/Tailscale links")
 		fmt.Println("prefer dry-run first; do not point at tunnels you cannot afford to mis-route")
 		return nil
@@ -259,11 +271,19 @@ func runDefaultPath(args []string) error {
 		if err != nil {
 			return err
 		}
+		band := pathpin.CurrentBand()
+		plan.Priority = band.DefaultPath
 		fmt.Println("no kernel changes — planned ops:")
 		fmt.Println(plan.Describe())
 		fmt.Printf("pins win at priority %d; preserve-main at %d; default-path catch-all at %d (table %d)\n",
-			pathpin.RulePref, pathpin.MainPreservePref, pathpin.DefaultPathPref, pathpin.DefaultPathTable)
-		fmt.Println("note: priorities sit below typical Cloudflare WARP catch-all (~5209)")
+			band.Pins, band.Preserve, band.DefaultPath, pathpin.DefaultPathTable)
+		if band.Warp > 0 {
+			fmt.Printf("note: WARP fwmark rule is at %d; catch-all stays after it so traffic is not forced off the tunnel\n", band.Warp)
+			fmt.Println("note: WARP split tunnel is left to you (warp-cli tunnel ip add-range 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1)")
+		} else {
+			fmt.Println("note: no WARP fwmark rule seen; static priorities 5000/5050/5100")
+		}
+		fmt.Println("note: other VPN catch-alls are moved behind the default path")
 		fmt.Println("note: live apply also adds lookup-main preserve rules for connected IPv4 prefixes in main")
 		return nil
 	case "apply":

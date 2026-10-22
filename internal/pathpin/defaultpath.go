@@ -6,17 +6,13 @@ import (
 	"strings"
 )
 
-// Reserved owned table / priorities for the catch-all default path.
-// Per-destination pins use RulePref and win first. All of these must stay
-// numerically below Cloudflare WARP's typical catch-all (~5209).
+// Reserved owned table for the catch-all default path.
+// Priorities come from PriorityBand. The catch-all stays after WARP's fwmark
+// rule; that client drops egress that is not the tunnel.
 const (
-	// MainPreservePref steers connected/prefix destinations back to main before the catch-all.
-	MainPreservePref = 5050
-	// DefaultPathPref is the catch-all lookup (after pins + preserve).
-	DefaultPathPref = 5100
 	// DefaultPathTable holds 0.0.0.0/0 via the chosen iface (never the main table).
 	DefaultPathTable = 18990
-	// WarpExemptMark is Cloudflare WARP's fwmark (rule 5209: "not fwmark 0x100cf").
+	// WarpExemptMark is Cloudflare WARP's fwmark ("not fwmark 0x100cf").
 	// Our catch-all must use the same invert-mark so WARP tunnel/control packets
 	// still fall through to main/WARP instead of being forced onto eno1 (which
 	// leaves warp-cli stuck in Reconnecting).
