@@ -8,8 +8,9 @@ import (
 )
 
 // WatchPolicy re-applies pins and the default path when the installed
-// priorities drift from CurrentBand. It does not move the catch-all in front
-// of WARP: that client drops off-tunnel egress and the host loses IPv4.
+// priorities drift from CurrentBand. Foreign catch-alls, including WARP,
+// are moved behind the default path. The WARP address itself keeps WARP's
+// table, and the default interface is accepted in WARP's filter.
 //
 // realign may be nil when no default path is installed. It should re-apply
 // the catch-all (and preserve rules) for the current interface.
@@ -19,32 +20,35 @@ func WatchPolicy(ctx context.Context, pins *Manager, realign func() error, every
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
-	var warnedLow bool
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			realignPolicy(pins, realign, &warnedLow)
+			realignPolicy(pins, realign)
 		}
 	}
 }
 
-func realignPolicy(pins *Manager, realign func() error, warnedLow *bool) {
+func realignPolicy(pins *Manager, realign func() error) {
 	policyMu.Lock()
 	defer policyMu.Unlock()
 	band, defDrift, pinDrift, err := PolicyDrift()
 	if err != nil {
 		return
 	}
-	if band.Warp > 0 && band.DefaultPath > band.Warp && warnedLow != nil && !*warnedLow {
-		log.Printf("pathpin: WARP fwmark rule at %d stays ahead of default-path %d (off-tunnel egress is dropped)", band.Warp, band.DefaultPath)
-		*warnedLow = true
-	}
 	if defDrift || pinDrift {
 		realignBand(pins, realign, band, defDrift, pinDrift)
 	}
 	deferForeign(band)
+	if err := EnsureWarpOrigin(); err != nil {
+		log.Printf("pathpin: warp source rule: %v", err)
+	}
+	if iface := currentDefaultIface(); iface != "" {
+		if err := EnsureDefaultEgress(iface); err != nil {
+			log.Printf("pathpin: default iface through WARP filter: %v", err)
+		}
+	}
 }
 
 func realignBand(pins *Manager, realign func() error, band PriorityBand, defDrift, pinDrift bool) {
@@ -100,6 +104,12 @@ var (
 // HaltPolicy blocks until any in-flight realign finishes, then stops further ones.
 // Call it before removing the default path during process shutdown.
 func HaltPolicy() { policyMu.Lock() }
+
+func currentDefaultIface() string {
+	defaultIfaceMu.Lock()
+	defer defaultIfaceMu.Unlock()
+	return defaultIfaceLive
+}
 
 func rememberDefaultIface(iface string) {
 	defaultIfaceMu.Lock()

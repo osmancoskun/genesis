@@ -4,6 +4,7 @@ package pathpin
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 
@@ -104,10 +105,13 @@ func (a *NetlinkApplier) ApplyDefaultPath(iface string) (err error) {
 		if isPerm(err) {
 			return FormatPrivError(err)
 		}
-		if isExists(err) {
-			return nil
+		if !isExists(err) {
+			return fmt.Errorf("pathpin: default-path rule add: %w", err)
 		}
-		return fmt.Errorf("pathpin: default-path rule add: %w", err)
+	}
+	if err := EnsureDefaultEgress(iface); err != nil {
+		// Routes are already installed. The watcher retries the mark.
+		log.Printf("pathpin: default iface through WARP filter: %v", err)
 	}
 	return nil
 }
@@ -132,6 +136,9 @@ func removeDefaultPathLocked(iface string) error {
 		}
 	}
 	_ = iface // table is reserved globally for default-path in MVP
+	if err := ClearDefaultEgress(); err != nil {
+		return fmt.Errorf("pathpin: default egress clear: %w", err)
+	}
 	return nil
 }
 

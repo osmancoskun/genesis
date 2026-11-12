@@ -103,8 +103,8 @@ func main() {
 		log.Printf("default-path: rules have no default_path.interface; ignoring mode=%s", dpMode)
 	}
 
-	// Re-seat pins and the catch-all if a previous process left them in front of
-	// WARP. The catch-all stays behind WARP; that client drops off-tunnel egress.
+	// Re-seat pins and the catch-all, push foreign catch-alls (including WARP)
+	// behind the default path, and accept that interface in WARP's filter.
 	go pathpin.WatchPolicy(ctx, pinMgr, pathpin.RealignDefaultPath, 2*time.Second)
 
 	srv := &dnsstub.Server{

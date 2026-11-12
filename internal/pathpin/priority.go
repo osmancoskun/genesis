@@ -2,14 +2,16 @@ package pathpin
 
 import "sort"
 
-// Static priorities are the normal pin / preserve / catch-all band.
+// Static priorities are the pin / preserve / catch-all band. They do not move.
 // WARP's Linux client installs "not fwmark 0x100cf lookup <warp-table>" with
 // no priority, and the kernel parks that rule in front of whatever else exists.
-// It also drops packets that leave on any device other than CloudflareWARP.
-// A catch-all placed before that rule therefore blackholes the host: every
-// unmarked flow is forced onto eno1 and then rejected. BandFrom keeps the
-// catch-all numerically after the live WARP rule. Per-destination pins stay
-// at RulePref so they can still win.
+// That catch-all is a foreign rule: ForeignMoves pushes it behind the default
+// path, same as any other VPN. Per-destination pins stay at RulePref so a
+// chosen address can still leave via CloudflareWARP. WARP's filter drops
+// packets that are not on its tunnel; the fwmark only skips its routing rule.
+// The agent accepts the default interface in that filter. Packets sourced
+// from the WARP address stay on WARP's table (priority 5099) so its own
+// in-tunnel DNS is not sent out the default NIC.
 const (
 	// RulePref is the static per-destination pin priority.
 	RulePref = 5000
@@ -17,6 +19,10 @@ const (
 	MainPreservePref = 5050
 	// DefaultPathPref is the static catch-all priority.
 	DefaultPathPref = 5100
+	// WarpSourcePref sends packets that originate on the WARP address into
+	// WARP's table. They must be evaluated before the default path, which
+	// would otherwise send that address out the physical NIC.
+	WarpSourcePref = 5099
 
 	// ruleTableMain is the IPv4 main table id (RT_TABLE_MAIN).
 	ruleTableMain = 254
@@ -56,9 +62,9 @@ type RuleSnap struct {
 	HasDev  bool
 }
 
-// ForeignMove is a non-WARP catch-all that would be evaluated with, or before,
-// the default path. To sits just after the default path so that catch-all only
-// sees traffic genesis did not already pin.
+// ForeignMove is a catch-all that would be evaluated with, or before, the
+// default path. To sits just after the default path so that catch-all only
+// sees traffic genesis did not already pin. WARP's fwmark catch-all is included.
 type ForeignMove struct {
 	From, To int
 	Table    int
@@ -68,8 +74,17 @@ type ForeignMove struct {
 
 // BandFrom chooses priorities from a rule snapshot.
 // WARP is "not fwmark WarpExemptMark" into a table that is not our catch-all.
-// Our own catch-all uses the same mark so the tunnel stays exempt; it is ignored.
+// Our own catch-all uses the same mark so the tunnel stays exempt; it is ignored
+// when recording Warp. Priorities stay on the static band either way: a WARP
+// catch-all that sits on or ahead of the default path is moved behind it.
 func BandFrom(snaps []RuleSnap) PriorityBand {
+	b := StaticBand()
+	b.Warp = warpPriority(snaps)
+	return b
+}
+
+// warpPriority is the lowest live WARP catch-all priority, or 0 when none exists.
+func warpPriority(snaps []RuleSnap) int {
 	warp := 0
 	for _, s := range snaps {
 		if !s.Invert || s.Mark != WarpExemptMark || s.Priority <= 0 {
@@ -82,20 +97,7 @@ func BandFrom(snaps []RuleSnap) PriorityBand {
 			warp = s.Priority
 		}
 	}
-	b := StaticBand()
-	b.Warp = warp
-	if warp == 0 {
-		return b
-	}
-	// Park preserve + catch-all just after WARP when the static numbers would
-	// be evaluated first. Pins stay put: they match a single destination.
-	if b.DefaultPath <= warp || b.Preserve <= warp {
-		if warp+2 < rulePrioMain {
-			b.Preserve = warp + 1
-			b.DefaultPath = warp + 2
-		}
-	}
-	return b
+	return warp
 }
 
 // driftFrom reports whether installed genesis rules are not on band.
@@ -130,10 +132,10 @@ func driftFrom(snaps []RuleSnap) (band PriorityBand, defaultDrift, pinDrift bool
 	return band, defaultDrift, pinDrift
 }
 
-// foreignCatchAll reports a policy rule that sends unmarked traffic into some
-// other interface's table. WARP's own fwmark rule is not one of these: that
-// client drops off-tunnel egress, so it is left where it is. Marked-only rules
-// (a tunnel's own packets), specific destinations, and the built-in tables are
+// foreignCatchAll reports a policy rule that sends traffic into some other
+// interface's table ahead of the default path. WARP's "not fwmark" catch-all
+// is included: it must not stay in front of genesis. Marked-only rules (a
+// tunnel's own packets), specific destinations, and the built-in tables are
 // left alone.
 func foreignCatchAll(s RuleSnap) bool {
 	if s.Priority <= 0 || s.Priority >= rulePrioMain {
@@ -143,9 +145,6 @@ func foreignCatchAll(s RuleSnap) bool {
 		return false
 	}
 	if OwnedTable(s.Table) {
-		return false
-	}
-	if s.Invert && s.Mark == WarpExemptMark {
 		return false
 	}
 	if s.Mark != 0 && !s.Invert {

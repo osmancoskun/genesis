@@ -242,13 +242,9 @@ func runDefaultPath(args []string) error {
 		band := pathpin.CurrentBand()
 		fmt.Println("default-path check: CAP_NET_ADMIN appears available")
 		fmt.Printf("live apply uses owned table %d, catch-all priority %d\n", pathpin.DefaultPathTable, band.DefaultPath)
-		if band.Warp > 0 {
-			fmt.Printf("WARP fwmark rule is at %d; catch-all stays after it (WARP drops off-tunnel egress)\n", band.Warp)
-			fmt.Println("WARP split tunnel is not changed. To keep unmatched traffic on the default path while WARP is up, add the excludes yourself:")
-			fmt.Println("  warp-cli tunnel ip add-range 0.0.0.0/1")
-			fmt.Println("  warp-cli tunnel ip add-range 128.0.0.0/1")
-			fmt.Println("  warp-cli tunnel ip add-range ::/1")
-			fmt.Println("  warp-cli tunnel ip add-range 8000::/1")
+		if band.Warp > 0 && band.Warp <= band.DefaultPath {
+			fmt.Printf("WARP fwmark rule is at %d; live apply moves it behind the default path (%d)\n", band.Warp, band.DefaultPath)
+			fmt.Println("live apply accepts the default interface in WARP's filter, which otherwise drops non-tunnel traffic")
 		}
 		fmt.Println("other VPN catch-alls are moved behind the default path; only pinned destinations use those interfaces")
 		fmt.Println("never edits main-table default; never toggles VPN/Tailscale links")
@@ -277,11 +273,11 @@ func runDefaultPath(args []string) error {
 		fmt.Println(plan.Describe())
 		fmt.Printf("pins win at priority %d; preserve-main at %d; default-path catch-all at %d (table %d)\n",
 			band.Pins, band.Preserve, band.DefaultPath, pathpin.DefaultPathTable)
-		if band.Warp > 0 {
-			fmt.Printf("note: WARP fwmark rule is at %d; catch-all stays after it so traffic is not forced off the tunnel\n", band.Warp)
-			fmt.Println("note: WARP split tunnel is left to you (warp-cli tunnel ip add-range 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1)")
+		if band.Warp > 0 && band.Warp <= band.DefaultPath {
+			fmt.Printf("note: WARP fwmark rule is at %d; live apply moves it behind the default path (%d)\n", band.Warp, band.DefaultPath)
+			fmt.Println("note: live apply accepts the default interface in WARP's filter, which otherwise drops non-tunnel traffic")
 		} else {
-			fmt.Println("note: no WARP fwmark rule seen; static priorities 5000/5050/5100")
+			fmt.Println("note: static priorities 5000/5050/5100")
 		}
 		fmt.Println("note: other VPN catch-alls are moved behind the default path")
 		fmt.Println("note: live apply also adds lookup-main preserve rules for connected IPv4 prefixes in main")

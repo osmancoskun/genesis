@@ -7,8 +7,9 @@ import (
 )
 
 // Reserved owned table for the catch-all default path.
-// Priorities come from PriorityBand. The catch-all stays after WARP's fwmark
-// rule; that client drops egress that is not the tunnel.
+// Priorities stay on the static band. A WARP catch-all that lands in front is
+// moved behind this table's rule. WARP's filter drops other egress; the agent
+// accepts the default interface there so later host firewall chains still see it.
 const (
 	// DefaultPathTable holds 0.0.0.0/0 via the chosen iface (never the main table).
 	DefaultPathTable = 18990

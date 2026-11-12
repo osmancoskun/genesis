@@ -14,3 +14,6 @@ func PolicyDrift() (PriorityBand, bool, bool, error) {
 
 // DeferForeignCatchAlls is a no-op off Linux.
 func DeferForeignCatchAlls(PriorityBand) ([]ForeignMove, error) { return nil, nil }
+
+// EnsureWarpOrigin is a no-op off Linux.
+func EnsureWarpOrigin() error { return nil }

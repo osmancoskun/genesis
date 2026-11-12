@@ -246,8 +246,8 @@ func menuSetDefaultPath(in *bufio.Reader) error {
 
 	if f.DefaultPath.Interface != "" && (f.Agent.DefaultPathMode == "netlink" || f.Agent.DefaultPathMode == "auto") {
 		fmt.Println()
-		fmt.Println("Live apply installs the catch-all after WARP's fwmark rule when WARP is connected.")
-		fmt.Println("WARP drops packets that leave on any other device, so overtaking it blacks out IPv4.")
+		fmt.Println("Live apply keeps the catch-all at priority 5100 and moves a WARP catch-all behind it.")
+		fmt.Println("The default interface is accepted in WARP's filter, which otherwise drops non-tunnel traffic.")
 		fmt.Print("Apply default-path to kernel now? [y/N]: ")
 		ans, err := in.ReadString('\n')
 		if err != nil {

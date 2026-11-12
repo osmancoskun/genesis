@@ -9,9 +9,8 @@ defaults:
   on_iface_down: fail_closed
 
 # Optional: steer non-pinned IPv4 via a chosen NIC (owned table 18990).
-# Do NOT enable this while Cloudflare WARP is connected: our catch-all priority
-# (5100) sits above WARP (~5209) and breaks the WARP tunnel.
-# Prefer HOST_LIVE without HOST_DEFAULT_PATH when testing with WARP.
+# The agent keeps this catch-all at priority 5100 and moves WARP's catch-all
+# behind it, and accepts the default interface in WARP's filter.
 # default_path:
 #   interface: eno1
 #   on_iface_down: fail_closed
